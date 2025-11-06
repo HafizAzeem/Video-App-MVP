@@ -37,34 +37,30 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | LAS MVP AI Services
+    | LAS MVP AI Services - Google AI
     |--------------------------------------------------------------------------
     */
 
-    'openai' => [
-        'api_key' => env('OPENAI_API_KEY'),
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+        'model' => env('GEMINI_MODEL', 'gemini-2.0-flash-exp'),
     ],
 
-    'elevenlabs' => [
-        'api_key' => env('ELEVENLABS_API_KEY'),
-        'voice_id' => env('ELEVENLABS_VOICE_ID'),
+    'google_cloud' => [
+        'project_id' => env('GOOGLE_CLOUD_PROJECT_ID'),
+        'credentials' => env('GOOGLE_APPLICATION_CREDENTIALS'),
     ],
 
-    'text_to_video' => [
-        'provider' => env('TEXT_TO_VIDEO_PROVIDER', 'runway'),
-        'api_key' => env('TEXT_TO_VIDEO_API_KEY'),
+        'text_to_video' => [
+        'provider' => env('VIDEO_PROVIDER', 'google_veo'),
     ],
 
     'stt' => [
-        'provider' => env('STT_PROVIDER', 'openai'),
+        'provider' => env('STT_PROVIDER', 'google'),
     ],
 
     'tts' => [
-        'provider' => env('TTS_PROVIDER', 'openai'),
-    ],
-
-    'gpt' => [
-        'model' => env('GPT_MODEL', 'gpt-4-turbo'),
+        'provider' => env('TTS_PROVIDER', 'google'),
     ],
 
 ];

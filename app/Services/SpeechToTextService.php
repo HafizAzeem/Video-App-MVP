@@ -2,66 +2,116 @@
 
 namespace App\Services;
 
+use Google\Cloud\Speech\V1\SpeechClient;
+use Google\Cloud\Speech\V1\RecognitionConfig;
+use Google\Cloud\Speech\V1\RecognitionAudio;
+use Google\Cloud\Speech\V1\RecognitionConfig\AudioEncoding;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class SpeechToTextService
 {
-    public function __construct(
-        protected string $apiKey = '',
-        protected string $provider = 'openai'
-    ) {
-        $this->apiKey = config('services.openai.api_key');
-        $this->provider = config('services.stt.provider', 'openai');
+    protected ?SpeechClient $client = null;
+    protected string $provider;
+
+    public function __construct()
+    {
+        $this->provider = config('services.stt.provider', 'google');
     }
 
     /**
-     * Transcribe audio file to text using OpenAI Whisper API
+     * Transcribe audio file to text using Google Cloud Speech-to-Text
      */
     public function transcribe(UploadedFile|string $audio): string
     {
         return match ($this->provider) {
-            'openai' => $this->transcribeWithOpenAI($audio),
             'google' => $this->transcribeWithGoogle($audio),
             default => throw new \Exception("Unsupported STT provider: {$this->provider}"),
         };
     }
 
-    protected function transcribeWithOpenAI(UploadedFile|string $audio): string
+    protected function transcribeWithGoogle(UploadedFile|string $audio): string
     {
         try {
+            // Initialize Google Speech client with credentials
+            $this->initializeGoogleClient();
+
+            // Get audio content
             $audioPath = $audio instanceof UploadedFile
                 ? $audio->getRealPath()
                 : Storage::path($audio);
 
-            $response = Http::withToken($this->apiKey)
-                ->attach('file', file_get_contents($audioPath), basename($audioPath))
-                ->post('https://api.openai.com/v1/audio/transcriptions', [
-                    'model' => 'whisper-1',
-                    'language' => 'en',
-                ]);
+            $audioContent = file_get_contents($audioPath);
 
-            if ($response->failed()) {
-                throw new \Exception('OpenAI Whisper API failed: ' . $response->body());
+            // Determine audio encoding
+            $mimeType = $audio instanceof UploadedFile
+                ? $audio->getMimeType()
+                : mime_content_type($audioPath);
+
+            $encoding = $this->getAudioEncoding($mimeType);
+
+            // Configure recognition
+            $config = (new RecognitionConfig())
+                ->setEncoding($encoding)
+                ->setSampleRateHertz(16000)
+                ->setLanguageCode('en-US')
+                ->setEnableAutomaticPunctuation(true);
+
+            $recognitionAudio = (new RecognitionAudio())
+                ->setContent($audioContent);
+
+            // Perform transcription
+            $response = $this->client->recognize($config, $recognitionAudio);
+
+            $transcript = '';
+            foreach ($response->getResults() as $result) {
+                $alternatives = $result->getAlternatives();
+                if ($alternatives && count($alternatives) > 0) {
+                    $transcript .= $alternatives[0]->getTranscript() . ' ';
+                }
             }
 
-            return $response->json('text');
+            if (empty(trim($transcript))) {
+                throw new \Exception('No transcription results returned');
+            }
+
+            return trim($transcript);
+
         } catch (\Exception $e) {
-            Log::error('STT transcription failed', [
+            Log::error('Google STT transcription failed', [
                 'error' => $e->getMessage(),
-                'provider' => 'openai',
+                'provider' => 'google',
             ]);
 
             throw $e;
+        } finally {
+            if ($this->client) {
+                $this->client->close();
+            }
         }
     }
 
-    protected function transcribeWithGoogle(UploadedFile|string $audio): string
+    protected function initializeGoogleClient(): void
     {
-        // Placeholder for Google Speech-to-Text API integration
-        throw new \Exception('Google STT not yet implemented');
+        $credentialsPath = config('services.google_cloud.credentials');
+
+        if ($credentialsPath && file_exists($credentialsPath)) {
+            putenv("GOOGLE_APPLICATION_CREDENTIALS={$credentialsPath}");
+        }
+
+        $this->client = new SpeechClient();
+    }
+
+    protected function getAudioEncoding(string $mimeType): int
+    {
+        return match ($mimeType) {
+            'audio/wav', 'audio/wave' => AudioEncoding::LINEAR16,
+            'audio/mp3', 'audio/mpeg' => AudioEncoding::MP3,
+            'audio/ogg' => AudioEncoding::OGG_OPUS,
+            'audio/webm' => AudioEncoding::WEBM_OPUS,
+            default => AudioEncoding::LINEAR16,
+        };
     }
 
     /**

@@ -2,88 +2,140 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Http;
+use Google\Cloud\TextToSpeech\V1\AudioConfig;
+use Google\Cloud\TextToSpeech\V1\AudioEncoding;
+use Google\Cloud\TextToSpeech\V1\SsmlVoiceGender;
+use Google\Cloud\TextToSpeech\V1\SynthesisInput;
+use Google\Cloud\TextToSpeech\V1\TextToSpeechClient;
+use Google\Cloud\TextToSpeech\V1\VoiceSelectionParams;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class TextToSpeechService
 {
-    public function __construct(
-        protected string $apiKey = '',
-        protected string $provider = 'openai'
-    ) {
-        $this->apiKey = config('services.openai.api_key');
-        $this->provider = config('services.tts.provider', 'openai');
+    protected ?TextToSpeechClient $client = null;
+    protected string $provider;
+
+    public function __construct()
+    {
+        $this->provider = config('services.tts.provider', 'google');
     }
 
     /**
-     * Generate audio from text using OpenAI TTS API
+     * Generate audio from text using Google Cloud Text-to-Speech
      */
-    public function generate(string $text, string $voice = 'alloy'): string
+    public function generate(string $text, string $voice = 'en-US-Neural2-C'): string
     {
         return match ($this->provider) {
-            'openai' => $this->generateWithOpenAI($text, $voice),
-            'elevenlabs' => $this->generateWithElevenLabs($text, $voice),
+            'google' => $this->generateWithGoogle($text, $voice),
             default => throw new \Exception("Unsupported TTS provider: {$this->provider}"),
         };
     }
 
-    protected function generateWithOpenAI(string $text, string $voice): string
+    protected function generateWithGoogle(string $text, string $voiceName): string
     {
         try {
-            $response = Http::withToken($this->apiKey)
-                ->post('https://api.openai.com/v1/audio/speech', [
-                    'model' => 'tts-1',
-                    'input' => $text,
-                    'voice' => $voice, // alloy, echo, fable, onyx, nova, shimmer
-                ]);
+            // Initialize Google TTS client
+            $this->initializeGoogleClient();
 
-            if ($response->failed()) {
-                throw new \Exception('OpenAI TTS API failed: ' . $response->body());
+            // Set the text input to be synthesized
+            $input = (new SynthesisInput())
+                ->setText($text);
+
+            // Build the voice request parameters
+            // Voice name format: {language-code}-{voice-type}-{voice-name}
+            // Example: en-US-Neural2-C, en-US-Wavenet-D
+            $voice = (new VoiceSelectionParams())
+                ->setLanguageCode('en-US')
+                ->setName($voiceName)
+                ->setSsmlGender(SsmlVoiceGender::NEUTRAL);
+
+            // Select the type of audio file you want returned
+            $audioConfig = (new AudioConfig())
+                ->setAudioEncoding(AudioEncoding::MP3)
+                ->setSpeakingRate(1.0)
+                ->setPitch(0.0)
+                ->setVolumeGainDb(0.0);
+
+            // Perform the text-to-speech request
+            $response = $this->client->synthesizeSpeech($input, $voice, $audioConfig);
+
+            // Get the audio content
+            $audioContent = $response->getAudioContent();
+
+            if (empty($audioContent)) {
+                throw new \Exception('No audio content returned from Google TTS');
             }
 
+            // Store the audio file
             $filename = 'tts/' . uniqid() . '.mp3';
-            Storage::put($filename, $response->body());
+            Storage::put($filename, $audioContent);
+
+            Log::info('Google TTS generated successfully', [
+                'filename' => $filename,
+                'voice' => $voiceName,
+                'text_length' => strlen($text),
+            ]);
 
             return $filename;
+
         } catch (\Exception $e) {
-            Log::error('TTS generation failed', [
+            Log::error('Google TTS generation failed', [
                 'error' => $e->getMessage(),
-                'provider' => 'openai',
+                'provider' => 'google',
             ]);
 
             throw $e;
+        } finally {
+            if ($this->client) {
+                $this->client->close();
+            }
         }
     }
 
-    protected function generateWithElevenLabs(string $text, string $voiceId): string
+    protected function initializeGoogleClient(): void
+    {
+        $credentialsPath = config('services.google_cloud.credentials');
+
+        if ($credentialsPath && file_exists($credentialsPath)) {
+            putenv("GOOGLE_APPLICATION_CREDENTIALS={$credentialsPath}");
+        }
+
+        $this->client = new TextToSpeechClient();
+    }
+
+    /**
+     * Get available voices for a language
+     */
+    public function getAvailableVoices(string $languageCode = 'en-US'): array
     {
         try {
-            $apiKey = config('services.elevenlabs.api_key');
-            $voiceId = $voiceId ?: config('services.elevenlabs.voice_id');
+            $this->initializeGoogleClient();
 
-            $response = Http::withHeaders([
-                'xi-api-key' => $apiKey,
-            ])->post("https://api.elevenlabs.io/v1/text-to-speech/{$voiceId}", [
-                'text' => $text,
-                'model_id' => 'eleven_monolingual_v1',
-            ]);
+            $response = $this->client->listVoices($languageCode);
+            $voices = [];
 
-            if ($response->failed()) {
-                throw new \Exception('ElevenLabs TTS API failed: ' . $response->body());
+            foreach ($response->getVoices() as $voice) {
+                $voices[] = [
+                    'name' => $voice->getName(),
+                    'language_codes' => iterator_to_array($voice->getLanguageCodes()),
+                    'ssml_gender' => SsmlVoiceGender::name($voice->getSsmlGender()),
+                    'natural_sample_rate_hertz' => $voice->getNaturalSampleRateHertz(),
+                ];
             }
 
-            $filename = 'tts/' . uniqid() . '.mp3';
-            Storage::put($filename, $response->body());
+            return $voices;
 
-            return $filename;
         } catch (\Exception $e) {
-            Log::error('TTS generation failed', [
+            Log::error('Failed to get Google TTS voices', [
                 'error' => $e->getMessage(),
-                'provider' => 'elevenlabs',
             ]);
 
             throw $e;
+        } finally {
+            if ($this->client) {
+                $this->client->close();
+            }
         }
     }
 }

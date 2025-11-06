@@ -2,52 +2,38 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Http;
+use Gemini\Laravel\Facades\Gemini;
 use Illuminate\Support\Facades\Log;
 
 class GPTService
 {
-    public function __construct(
-        protected string $apiKey = '',
-        protected string $model = 'gpt-4-turbo'
-    ) {
-        $this->apiKey = config('services.openai.api_key');
-        $this->model = config('services.gpt.model', 'gpt-4-turbo');
+    protected string $model;
+
+    public function __construct()
+    {
+        $this->model = config('services.gemini.model', 'gemini-2.0-flash-exp');
     }
 
     /**
-     * Summarize user answers into a compelling story
+     * Summarize user answers into a compelling story using Gemini
      */
     public function summarizeAnswers(array $answers): string
     {
         $prompt = $this->buildSummarizationPrompt($answers);
 
         try {
-            $response = Http::withToken($this->apiKey)
-                ->timeout(60)
-                ->post('https://api.openai.com/v1/chat/completions', [
-                    'model' => $this->model,
-                    'messages' => [
-                        [
-                            'role' => 'system',
-                            'content' => 'You are a creative storyteller. Transform user answers into an engaging, inspiring narrative suitable for video production. Keep it concise (150-200 words), emotional, and visual.',
-                        ],
-                        [
-                            'role' => 'user',
-                            'content' => $prompt,
-                        ],
-                    ],
-                    'temperature' => 0.8,
-                    'max_tokens' => 500,
-                ]);
+            $result = Gemini::geminiPro()->generateContent($prompt);
 
-            if ($response->failed()) {
-                throw new \Exception('OpenAI GPT API failed: ' . $response->body());
+            $text = $result->text();
+
+            if (empty($text)) {
+                throw new \Exception('No content returned from Gemini');
             }
 
-            return $response->json('choices.0.message.content');
+            return trim($text);
+
         } catch (\Exception $e) {
-            Log::error('GPT summarization failed', [
+            Log::error('Gemini summarization failed', [
                 'error' => $e->getMessage(),
                 'model' => $this->model,
             ]);
@@ -57,36 +43,39 @@ class GPTService
     }
 
     /**
-     * Generate video prompt from summary
+     * Generate video prompt from summary using Gemini
      */
     public function generateVideoPrompt(string $summary): string
     {
         try {
-            $response = Http::withToken($this->apiKey)
-                ->timeout(60)
-                ->post('https://api.openai.com/v1/chat/completions', [
-                    'model' => $this->model,
-                    'messages' => [
-                        [
-                            'role' => 'system',
-                            'content' => 'You are a video production specialist. Transform the story into a detailed video prompt with visual descriptions, camera movements, and atmosphere. Be specific and cinematic.',
-                        ],
-                        [
-                            'role' => 'user',
-                            'content' => "Story: {$summary}\n\nCreate a video prompt:",
-                        ],
-                    ],
-                    'temperature' => 0.7,
-                    'max_tokens' => 400,
-                ]);
+            $prompt = <<<PROMPT
+You are a video production specialist. Transform the following story into a detailed video prompt with visual descriptions, camera movements, and atmosphere. Be specific and cinematic.
 
-            if ($response->failed()) {
-                throw new \Exception('OpenAI GPT API failed: ' . $response->body());
+Story: {$summary}
+
+Create a video prompt that includes:
+- Opening scene description
+- Camera movements and angles
+- Visual elements and atmosphere
+- Color palette and lighting
+- Transition suggestions
+- Closing scene
+
+Keep it focused and under 400 words.
+PROMPT;
+
+            $result = Gemini::geminiPro()->generateContent($prompt);
+
+            $text = $result->text();
+
+            if (empty($text)) {
+                throw new \Exception('No content returned from Gemini');
             }
 
-            return $response->json('choices.0.message.content');
+            return trim($text);
+
         } catch (\Exception $e) {
-            Log::error('Video prompt generation failed', [
+            Log::error('Video prompt generation failed with Gemini', [
                 'error' => $e->getMessage(),
             ]);
 
@@ -101,16 +90,46 @@ class GPTService
             ->join("\n");
 
         return <<<PROMPT
-        Transform these user answers into a short, inspiring story:
+Transform these user answers into a short, inspiring story:
 
-        {$formattedAnswers}
+{$formattedAnswers}
 
-        Create a narrative that:
-        - Connects all answers into a cohesive story
-        - Is emotional and uplifting
-        - Uses vivid, visual language
-        - Is 150-200 words
-        - Ends with hope or motivation
-        PROMPT;
+Create a narrative that:
+- Connects all answers into a cohesive story
+- Is emotional and uplifting
+- Uses vivid, visual language
+- Is 150-200 words
+- Ends with hope or motivation
+
+Focus on storytelling and creating an engaging narrative suitable for video production.
+PROMPT;
+    }
+
+    /**
+     * Generate content with specific model
+     */
+    public function generateContent(string $prompt, ?string $model = null): string
+    {
+        try {
+            $modelToUse = $model ?? $this->model;
+
+            $result = Gemini::geminiPro()->generateContent($prompt);
+
+            $text = $result->text();
+
+            if (empty($text)) {
+                throw new \Exception('No content returned from Gemini');
+            }
+
+            return trim($text);
+
+        } catch (\Exception $e) {
+            Log::error('Gemini content generation failed', [
+                'error' => $e->getMessage(),
+                'model' => $modelToUse ?? 'default',
+            ]);
+
+            throw $e;
+        }
     }
 }
