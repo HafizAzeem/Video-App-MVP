@@ -35,4 +35,36 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | LAS MVP AI Services
+    |--------------------------------------------------------------------------
+    */
+
+    'openai' => [
+        'api_key' => env('OPENAI_API_KEY'),
+    ],
+
+    'elevenlabs' => [
+        'api_key' => env('ELEVENLABS_API_KEY'),
+        'voice_id' => env('ELEVENLABS_VOICE_ID'),
+    ],
+
+    'text_to_video' => [
+        'provider' => env('TEXT_TO_VIDEO_PROVIDER', 'runway'),
+        'api_key' => env('TEXT_TO_VIDEO_API_KEY'),
+    ],
+
+    'stt' => [
+        'provider' => env('STT_PROVIDER', 'openai'),
+    ],
+
+    'tts' => [
+        'provider' => env('TTS_PROVIDER', 'openai'),
+    ],
+
+    'gpt' => [
+        'model' => env('GPT_MODEL', 'gpt-4-turbo'),
+    ],
+
 ];
