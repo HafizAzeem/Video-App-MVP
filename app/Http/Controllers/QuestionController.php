@@ -8,6 +8,7 @@ use App\Models\Answer;
 use App\Models\Question;
 use App\Services\SpeechToTextService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -53,7 +54,7 @@ class QuestionController extends Controller
         }
 
         // If audio is provided, transcribe it asynchronously
-        if ($audioPath && !$request->filled('text')) {
+        if ($audioPath && ! $request->filled('text')) {
             // Dispatch job for async transcription
             $answer = Answer::create([
                 'user_id' => auth()->id(),
@@ -84,18 +85,35 @@ class QuestionController extends Controller
     public function transcribeAudio(Request $request)
     {
         $request->validate([
-            'audio' => 'required|file|mimes:mp3,wav,webm,ogg|max:25600',
+            'audio' => 'required|file|max:25600',
         ]);
 
         try {
-            if (!$this->sttService->validateAudioFile($request->file('audio'))) {
-                return response()->json(['error' => 'Invalid audio file'], 422);
+            $audioFile = $request->file('audio');
+
+            Log::info('Transcription request received', [
+                'mime_type' => $audioFile->getMimeType(),
+                'extension' => $audioFile->getClientOriginalExtension(),
+                'size' => $audioFile->getSize(),
+            ]);
+
+            if (! $this->sttService->validateAudioFile($audioFile)) {
+                return response()->json([
+                    'error' => 'Invalid audio file format or size',
+                    'mime_type' => $audioFile->getMimeType(),
+                    'extension' => $audioFile->getClientOriginalExtension(),
+                ], 422);
             }
 
-            $text = $this->sttService->transcribe($request->file('audio'));
+            $text = $this->sttService->transcribe($audioFile);
 
             return response()->json(['text' => $text]);
         } catch (\Exception $e) {
+            Log::error('Transcription error', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }

@@ -4,6 +4,7 @@ import { Head, router, useForm } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
 import AudioPlayer from '@/Components/AudioPlayer.vue';
 import MicRecorder from '@/Components/MicRecorder.vue';
+import axios from 'axios';
 
 const props = defineProps({
     questions: Array,
@@ -36,6 +37,7 @@ const form = useForm({
     audio: null,
 });
 
+const isTranscribing = ref(false);
 const answerMode = ref('voice'); // 'voice' or 'text'
 
 const nextQuestion = () => {
@@ -55,25 +57,49 @@ const previousQuestion = () => {
 const resetForm = () => {
     form.reset();
     answerMode.value = 'voice';
+    isTranscribing.value = false;
 };
 
-const handleRecordingSaved = (audioBlob) => {
+const handleRecordingSaved = async (audioBlob) => {
+    isTranscribing.value = true;
     form.question_id = currentQuestion.value.id;
     form.audio = new File([audioBlob], 'answer.webm', { type: 'audio/webm' });
 
-    form.post(route('questions.answer'), {
-        preserveScroll: true,
-        onSuccess: () => {
-            if (!isLastQuestion.value) {
-                nextQuestion();
-            } else {
-                router.visit(route('review.index'));
-            }
-        },
-    });
+    // Send audio for transcription
+    const formData = new FormData();
+    formData.append('audio', form.audio);
+
+    try {
+        const response = await axios.post(route('questions.transcribe'), formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
+
+        if (response.data.text) {
+            // Set the transcription text in the form
+            form.text = response.data.text;
+        } else if (response.data.error) {
+            console.error('Transcription error:', response.data.error);
+            alert('Failed to transcribe audio. Please try typing your answer instead.');
+        }
+    } catch (error) {
+        console.error('Transcription failed:', error);
+        console.error('Error response:', error.response?.data);
+        
+        const errorMessage = error.response?.data?.error || 
+                           error.response?.data?.message || 
+                           'Failed to transcribe audio. Please try typing your answer instead.';
+        
+        alert(errorMessage);
+    } finally {
+        isTranscribing.value = false;
+    }
 };
 
 const submitTextAnswer = () => {
+    if (!form.text) return;
+    
     form.question_id = currentQuestion.value.id;
 
     form.post(route('questions.answer'), {
@@ -127,11 +153,23 @@ const getUserAnswer = (questionId) => {
 
                     <!-- Answer Input Area -->
                     <div class="space-y-4">
+                        <!-- Transcription Status -->
+                        <div v-if="isTranscribing" class="text-center py-4">
+                            <div class="inline-flex items-center space-x-2 text-blue-600">
+                                <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span class="text-lg font-semibold">Transcribing your voice...</span>
+                            </div>
+                        </div>
+                        
                         <textarea
                             v-model="form.text"
                             rows="8"
                             class="w-full px-4 py-3 border-2 border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
                             placeholder="Type or use voice to answer..."
+                            :disabled="isTranscribing"
                         ></textarea>
                     </div>
 
