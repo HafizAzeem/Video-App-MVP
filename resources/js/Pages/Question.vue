@@ -20,6 +20,16 @@ const currentQuestion = computed(() => props.questions[currentIndex.value]);
 const progress = computed(() => ((currentIndex.value + 1) / props.questions.length) * 100);
 const isLastQuestion = computed(() => currentIndex.value === props.questions.length - 1);
 
+// Character configuration for each question
+const characters = [
+    { name: '루비', nameEn: 'Ruby', image: '/images/KakaoTalk_20251106_111302420.png', color: 'bg-orange-500' }, // Fox
+    { name: '엘리', nameEn: 'Ellie', image: '/images/KakaoTalk_20251106_111302790.png', color: 'bg-teal-600' }, // Elephant
+    { name: '피피', nameEn: 'Pipi', image: '/images/KakaoTalk_20251106_111303519.png', color: 'bg-teal-600' }, // Bird
+    { name: '올리', nameEn: 'Ollie', image: '/images/KakaoTalk_20251106_111301981.png', color: 'bg-blue-600' }, // Owl
+];
+
+const currentCharacter = computed(() => characters[currentIndex.value] || characters[0]);
+
 const form = useForm({
     question_id: null,
     text: '',
@@ -87,119 +97,92 @@ const getUserAnswer = (questionId) => {
     <Head title="Answer Questions" />
 
     <AuthenticatedLayout>
-        <div class="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 py-12">
+        <div class="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 py-12">
             <div class="max-w-3xl mx-auto px-4">
-                <!-- Progress Bar -->
-                <div class="mb-8">
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="text-sm font-medium text-gray-700">
-                            Question {{ currentIndex + 1 }} of {{ questions.length }}
+                <!-- Character Image -->
+                <div class="text-center mb-6">
+                    <img 
+                        :src="currentCharacter.image" 
+                        :alt="currentCharacter.nameEn" 
+                        class="w-48 h-48 mx-auto object-contain drop-shadow-xl animate-bounce-slow"
+                    />
+                    <!-- Character Name Badge -->
+                    <div class="mt-4">
+                        <span 
+                            :class="[currentCharacter.color, 'inline-block px-6 py-2 text-white font-bold text-lg rounded-full shadow-lg']"
+                        >
+                            {{ currentCharacter.name }}
                         </span>
-                        <span class="text-sm text-gray-600">{{ Math.round(progress) }}%</span>
-                    </div>
-                    <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-                        <div
-                            class="h-full bg-gradient-to-r from-indigo-600 to-purple-600 transition-all duration-500"
-                            :style="{ width: progress + '%' }"
-                        ></div>
                     </div>
                 </div>
 
                 <!-- Question Card -->
                 <div class="bg-white rounded-2xl shadow-xl p-8 space-y-6">
                     <!-- Question Text -->
-                    <div class="text-center space-y-4">
-                        <h2 class="text-3xl font-bold text-gray-900">
-                            {{ currentQuestion?.text }}
+                    <div class="text-center">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-6">
+                            Q.{{ currentIndex + 1 }} {{ currentQuestion?.text }}
                         </h2>
-
-                        <!-- Question Audio (if available) -->
-                        <div v-if="currentQuestion?.audio_path" class="max-w-md mx-auto">
-                            <AudioPlayer
-                                :src="`/storage/${currentQuestion.audio_path}`"
-                                :autoplay="true"
-                            />
-                        </div>
                     </div>
 
-                    <!-- Answer Mode Toggle -->
-                    <div class="flex justify-center space-x-4">
-                        <button
-                            @click="answerMode = 'voice'"
-                            :class="[
-                                'px-6 py-3 rounded-lg font-medium transition-all',
-                                answerMode === 'voice'
-                                    ? 'bg-indigo-600 text-white shadow-lg'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                            ]"
-                        >
-                            🎤 Voice Answer
-                        </button>
-                        <button
-                            @click="answerMode = 'text'"
-                            :class="[
-                                'px-6 py-3 rounded-lg font-medium transition-all',
-                                answerMode === 'text'
-                                    ? 'bg-indigo-600 text-white shadow-lg'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                            ]"
-                        >
-                            ✍️ Text Answer
-                        </button>
+                    <!-- Answer Input Area -->
+                    <div class="space-y-4">
+                        <textarea
+                            v-model="form.text"
+                            rows="8"
+                            class="w-full px-4 py-3 border-2 border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+                            placeholder="Type or use voice to answer..."
+                        ></textarea>
                     </div>
 
-                    <!-- Voice Recording Mode -->
-                    <div v-if="answerMode === 'voice'" class="py-8">
+                    <!-- Mic Button -->
+                    <div class="flex justify-center">
                         <MicRecorder
                             :max-duration="120"
                             @saved="handleRecordingSaved"
+                            class="inline-block"
                         />
                     </div>
 
-                    <!-- Text Input Mode -->
-                    <div v-else class="space-y-4">
-                        <textarea
-                            v-model="form.text"
-                            rows="6"
-                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                            placeholder="Type your answer here..."
-                        ></textarea>
-
-                        <button
-                            @click="submitTextAnswer"
-                            :disabled="!form.text || form.processing"
-                            class="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-lg hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                        >
-                            {{ form.processing ? 'Saving...' : (isLastQuestion ? 'Complete & Review' : 'Next Question →') }}
-                        </button>
-                    </div>
-
-                    <!-- Previous Answer Display -->
-                    <div v-if="getUserAnswer(currentQuestion?.id)" class="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-                        <p class="text-sm font-medium text-green-800 mb-1">✓ Previously answered:</p>
-                        <p class="text-sm text-green-700">{{ getUserAnswer(currentQuestion?.id).text }}</p>
+                    <!-- Progress Dots -->
+                    <div class="flex justify-center space-x-3 pt-4">
+                        <div
+                            v-for="index in questions.length"
+                            :key="index"
+                            :class="[
+                                'w-3 h-3 rounded-full transition-all',
+                                index - 1 === currentIndex ? 'bg-blue-600' : 'bg-gray-300'
+                            ]"
+                        ></div>
                     </div>
                 </div>
 
-                <!-- Navigation Buttons -->
-                <div class="flex justify-between mt-6">
+                <!-- Next Button -->
+                <div class="flex justify-end mt-6">
                     <button
-                        @click="previousQuestion"
-                        :disabled="currentIndex === 0"
-                        class="px-6 py-3 bg-white text-gray-700 font-medium rounded-lg shadow-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                        @click="submitTextAnswer"
+                        :disabled="!form.text || form.processing"
+                        class="px-12 py-4 bg-blue-600 hover:bg-blue-700 text-white text-xl font-semibold rounded-full shadow-xl hover:shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
-                        ← Previous
-                    </button>
-
-                    <button
-                        @click="nextQuestion"
-                        :disabled="currentIndex === questions.length - 1"
-                        class="px-6 py-3 bg-white text-gray-700 font-medium rounded-lg shadow-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                    >
-                        Skip →
+                        {{ form.processing ? 'Saving...' : 'Next' }}
                     </button>
                 </div>
             </div>
         </div>
     </AuthenticatedLayout>
 </template>
+
+<style scoped>
+@keyframes bounce-slow {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+.animate-bounce-slow {
+    animation: bounce-slow 2s ease-in-out infinite;
+}
+</style>

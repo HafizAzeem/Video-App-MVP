@@ -47,7 +47,7 @@ const goBack = () => {
                 </div>
 
                 <!-- Video Prompt Display -->
-                <div class="bg-white rounded-2xl shadow-xl p-8 mb-8 min-h-[400px] flex items-center justify-center border-2 border-blue-200">
+                <div class="bg-white rounded-2xl shadow-xl p-8 mb-8 min-h-[400px] flex items-center justify-center">
                     <div v-if="hasPrompt" class="w-full">
                         <p class="text-gray-800 text-lg leading-relaxed whitespace-pre-line">
                             {{ videoPrompt }}
@@ -55,7 +55,7 @@ const goBack = () => {
                     </div>
                     <div v-else class="text-center text-gray-500">
                         <p class="text-lg">[Generated Video Prompt]</p>
-                        <p class="text-sm mt-2">Creating your magical story...</p>
+                        <p class="text-sm mt-2">Loading your video concept...</p>
                     </div>
                 </div>
 
@@ -69,7 +69,7 @@ const goBack = () => {
                     </button>
                     <button
                         @click="confirmAndProceed"
-                        :disabled="form.processing"
+                        :disabled="!hasPrompt || form.processing"
                         class="px-12 py-4 bg-blue-600 hover:bg-blue-700 text-white text-xl font-semibold rounded-full shadow-xl hover:shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
                         {{ form.processing ? 'Processing...' : 'Next' }}
@@ -79,3 +79,7 @@ const goBack = () => {
         </div>
     </AuthenticatedLayout>
 </template>
+
+<style scoped>
+/* Add any custom styles here */
+</style>

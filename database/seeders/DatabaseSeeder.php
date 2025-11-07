@@ -22,25 +22,25 @@ class DatabaseSeeder extends Seeder
             'email' => 'test@example.com',
         ]);
 
-        // Create default questions for LAS MVP
+        // Create default questions for LAS MVP - Book Report Theme
         $questions = [
             [
-                'text' => 'What is your biggest dream or aspiration?',
+                'text' => 'Which book did you read?',
                 'order' => 1,
                 'is_active' => true,
             ],
             [
-                'text' => 'What challenge have you overcome that made you stronger?',
+                'text' => 'Which part of the book did you find interesting?',
                 'order' => 2,
                 'is_active' => true,
             ],
             [
-                'text' => 'What makes you unique or special?',
+                'text' => 'Have you experienced the contents of the book?',
                 'order' => 3,
                 'is_active' => true,
             ],
             [
-                'text' => 'What message would you share with the world?',
+                'text' => 'What did you imagine through the interesting parts of the book?',
                 'order' => 4,
                 'is_active' => true,
             ],

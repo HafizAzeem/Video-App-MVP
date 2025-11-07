@@ -43,25 +43,25 @@ class GPTService
     }
 
     /**
-     * Generate video prompt from summary using Gemini
+     * Generate video prompt from child's book report using Gemini
      */
     public function generateVideoPrompt(string $summary): string
     {
         try {
             $prompt = <<<PROMPT
-You are a video production specialist. Transform the following story into a detailed video prompt with visual descriptions, camera movements, and atmosphere. Be specific and cinematic.
+[System]
+You are a video concept artist specializing in transforming a child's pure and heartfelt book report into a beautiful, picture-book-style animation. Your task is to extract the core emotions, symbolic imagery, and key events from the [Child's Text] provided below. Based on this, generate a video production prompt in a warm, dreamlike, and illustrative style.
 
-Story: {$summary}
+[Visual Style Directives]
 
-Create a video prompt that includes:
-- Opening scene description
-- Camera movements and angles
-- Visual elements and atmosphere
-- Color palette and lighting
-- Transition suggestions
-- Closing scene
+- Visual Aesthetic: A soft, watercolor-bleeding effect or a pastel-toned, fairy-tale illustration style.
+- Core Expression: Visualize the child's emotions (e.g., joy, sadness, surprise) using color, light, and abstract shapes.
+- Final Output: Produce a single, cohesive paragraph prompt. The description must be specific, lyrical, and ready for a video generation AI to understand and execute immediately.
 
-Keep it focused and under 400 words.
+[Child's Text]
+{$summary}
+
+Create a beautiful, warm video prompt that captures the essence of this child's book report experience.
 PROMPT;
 
             $result = Gemini::geminiPro()->generateContent($prompt);
