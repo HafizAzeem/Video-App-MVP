@@ -2,16 +2,18 @@
 
 namespace App\Services;
 
-use Gemini\Laravel\Facades\Gemini;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class GPTService
 {
+    protected string $apiKey;
     protected string $model;
 
     public function __construct()
     {
-        $this->model = config('services.gemini.model', 'gemini-2.0-flash-exp');
+        $this->apiKey = config('gemini.api_key');
+        $this->model = config('services.gemini.model', 'gemini-1.5-flash');
     }
 
     /**
@@ -22,9 +24,24 @@ class GPTService
         $prompt = $this->buildSummarizationPrompt($answers);
 
         try {
-            $result = Gemini::geminiPro()->generateContent($prompt);
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json',
+            ])->post("https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}", [
+                'contents' => [
+                    [
+                        'parts' => [
+                            ['text' => $prompt]
+                        ]
+                    ]
+                ]
+            ]);
 
-            $text = $result->text();
+            if (!$response->successful()) {
+                throw new \Exception('Gemini API request failed: ' . $response->body());
+            }
+
+            $data = $response->json();
+            $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
 
             if (empty($text)) {
                 throw new \Exception('No content returned from Gemini');
@@ -64,9 +81,24 @@ You are a video concept artist specializing in transforming a child's pure and h
 Create a beautiful, warm video prompt that captures the essence of this child's book report experience.
 PROMPT;
 
-            $result = Gemini::geminiPro()->generateContent($prompt);
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json',
+            ])->post("https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}", [
+                'contents' => [
+                    [
+                        'parts' => [
+                            ['text' => $prompt]
+                        ]
+                    ]
+                ]
+            ]);
 
-            $text = $result->text();
+            if (!$response->successful()) {
+                throw new \Exception('Gemini API request failed: ' . $response->body());
+            }
+
+            $data = $response->json();
+            $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
 
             if (empty($text)) {
                 throw new \Exception('No content returned from Gemini');
@@ -113,9 +145,24 @@ PROMPT;
         try {
             $modelToUse = $model ?? $this->model;
 
-            $result = Gemini::geminiPro()->generateContent($prompt);
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json',
+            ])->post("https://generativelanguage.googleapis.com/v1beta/models/{$modelToUse}:generateContent?key={$this->apiKey}", [
+                'contents' => [
+                    [
+                        'parts' => [
+                            ['text' => $prompt]
+                        ]
+                    ]
+                ]
+            ]);
 
-            $text = $result->text();
+            if (!$response->successful()) {
+                throw new \Exception('Gemini API request failed: ' . $response->body());
+            }
+
+            $data = $response->json();
+            $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
 
             if (empty($text)) {
                 throw new \Exception('No content returned from Gemini');

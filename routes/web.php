@@ -37,8 +37,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Review
     Route::get('/review', [ReviewController::class, 'index'])->name('review.index');
-    Route::post('/review/summary', [ReviewController::class, 'generateSummary'])->name('review.summary');
-    Route::post('/review/tts', [ReviewController::class, 'generateTTS'])->name('review.tts');
+    Route::post('/review/generate-prompt', [ReviewController::class, 'generatePrompt'])->name('review.generate-prompt');
     Route::post('/review/confirm', [ReviewController::class, 'confirm'])->name('review.confirm');
 
     // Production

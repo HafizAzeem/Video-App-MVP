@@ -6,12 +6,16 @@ use App\Jobs\GenerateVideoJob;
 use App\Models\Video;
 use App\Services\GPTService;
 use App\Services\TextToVideoService;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class VideoController extends Controller
 {
+    use AuthorizesRequests;
+
     public function __construct(
         protected TextToVideoService $videoService,
         protected GPTService $gptService
@@ -22,11 +26,12 @@ class VideoController extends Controller
      */
     public function index(): Response
     {
-        $summary = session('confirmed_summary');
+        $videoPrompt = session('video_prompt');
+        $summary = session('summary');
 
-        if (!$summary) {
+        if (! $videoPrompt || ! $summary) {
             return Inertia::render('Production', [
-                'error' => 'No summary found. Please complete the review step first.',
+                'error' => 'No video prompt found. Please complete all questions and review first.',
             ]);
         }
 
@@ -38,8 +43,9 @@ class VideoController extends Controller
             ->first();
 
         return Inertia::render('Production', [
+            'videoPrompt' => $videoPrompt,
             'summary' => $summary,
-            'ongoingVideo' => $ongoingVideo,
+            'video' => $ongoingVideo,
         ]);
     }
 
@@ -48,22 +54,33 @@ class VideoController extends Controller
      */
     public function generate(Request $request)
     {
-        $request->validate([
-            'summary' => 'required|string',
-        ]);
+        // Get data from session
+        $videoPrompt = session('video_prompt');
+        $summary = session('summary');
+        $answers = session('answers');
+
+        if (! $videoPrompt || ! $summary) {
+            return response()->json(['error' => 'Missing required data'], 400);
+        }
 
         try {
-            // Create video record
+            // Create video record with summary and prompt
             $video = Video::create([
                 'user_id' => auth()->id(),
-                'summary_text' => $request->summary,
+                'summary_text' => $summary,
+                'prompt' => $videoPrompt,
                 'status' => 'pending',
+                'metadata' => [
+                    'answers' => $answers,
+                    'created_at' => now()->toIso8601String(),
+                ],
             ]);
 
             // Dispatch job for async video generation
             GenerateVideoJob::dispatch($video);
 
             return response()->json([
+                'success' => true,
                 'video_id' => $video->id,
                 'status' => 'pending',
                 'message' => 'Video generation started!',

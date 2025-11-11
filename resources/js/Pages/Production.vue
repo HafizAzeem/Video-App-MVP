@@ -2,6 +2,7 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
 import { ref, onMounted, onUnmounted, computed } from 'vue';
+import axios from 'axios';
 import ProgressBar from '@/Components/ProgressBar.vue';
 import VideoPlayer from '@/Components/VideoPlayer.vue';
 
@@ -33,9 +34,20 @@ onMounted(() => {
     }
 });
 
+const STORAGE_KEY = 'las_question_answers';
+
 onUnmounted(() => {
     stopPolling();
 });
+
+const clearLocalStorage = () => {
+    try {
+        localStorage.removeItem(STORAGE_KEY);
+        console.log('LocalStorage cleared successfully');
+    } catch (error) {
+        console.error('Failed to clear localStorage:', error);
+    }
+};
 
 const startVideoGeneration = () => {
     isGenerating.value = true;
@@ -44,7 +56,9 @@ const startVideoGeneration = () => {
 
     router.post(route('production.generate'), {}, {
         preserveScroll: true,
-        onSuccess: () => {
+        onSuccess: (page) => {
+            // Clear localStorage after successful video generation start
+            clearLocalStorage();
             startPolling();
         },
         onFinish: () => {
@@ -71,32 +85,34 @@ const stopPolling = () => {
 const checkVideoStatus = () => {
     if (!props.video) return;
 
-    router.get(
-        route('production.status', { video: props.video.id }),
-        {},
-        {
-            preserveScroll: true,
-            preserveState: true,
-            only: ['video'],
-            onSuccess: (page) => {
-                const video = page.props.video;
-                
-                if (video.status === 'completed') {
-                    progress.value = 100;
-                    statusMessage.value = 'Video generation completed!';
-                    stopPolling();
-                } else if (video.status === 'failed') {
-                    statusMessage.value = 'Video generation failed. Please try again.';
-                    stopPolling();
-                } else if (video.status === 'processing') {
-                    // Update progress based on elapsed time (simulated)
-                    const currentProgress = Math.min(progress.value + 5, 95);
-                    progress.value = currentProgress;
-                    statusMessage.value = 'Generating your video with Google Veo...';
-                }
-            },
-        }
-    );
+    axios.get(route('production.status', { video: props.video.id }))
+        .then(response => {
+            const video = response.data;
+            
+            if (video.status === 'completed') {
+                progress.value = 100;
+                statusMessage.value = 'Video generation completed!';
+                // Update the video prop with new data
+                props.video.status = video.status;
+                props.video.video_url = video.video_url;
+                stopPolling();
+            } else if (video.status === 'failed') {
+                statusMessage.value = 'Video generation failed. Please try again.';
+                props.video.status = video.status;
+                props.video.error_message = video.error_message;
+                stopPolling();
+            } else if (video.status === 'processing') {
+                // Update progress based on elapsed time (simulated)
+                const currentProgress = Math.min(progress.value + 5, 95);
+                progress.value = currentProgress;
+                statusMessage.value = 'Generating your video with Google Veo...';
+                props.video.status = video.status;
+            }
+        })
+        .catch(error => {
+            console.error('Status check failed:', error);
+            statusMessage.value = 'Failed to check video status';
+        });
 };
 
 const retryGeneration = () => {

@@ -1,73 +1,99 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, router, useForm } from '@inertiajs/vue3';
-import { ref, computed } from 'vue';
-import AudioPlayer from '@/Components/AudioPlayer.vue';
+import { Head, router } from '@inertiajs/vue3';
+import { ref, computed, watch, onMounted } from 'vue';
 import MicRecorder from '@/Components/MicRecorder.vue';
 import axios from 'axios';
 
 const props = defineProps({
     questions: Array,
-    userAnswers: Array,
     currentQuestionIndex: {
         type: Number,
         default: 0,
     },
 });
 
+const STORAGE_KEY = 'las_question_answers';
+
 const currentIndex = ref(props.currentQuestionIndex);
+const answers = ref({});
+const isTranscribing = ref(false);
 
 const currentQuestion = computed(() => props.questions[currentIndex.value]);
-const progress = computed(() => ((currentIndex.value + 1) / props.questions.length) * 100);
+const currentAnswer = computed({
+    get: () => answers.value[currentQuestion.value?.id] || '',
+    set: (value) => {
+        if (currentQuestion.value) {
+            answers.value[currentQuestion.value.id] = value;
+            saveToLocalStorage();
+        }
+    }
+});
+
 const isLastQuestion = computed(() => currentIndex.value === props.questions.length - 1);
 
 // Character configuration for each question
 const characters = [
-    { name: '루비', nameEn: 'Ruby', image: '/images/KakaoTalk_20251106_111302420.png', color: 'bg-orange-500' }, // Fox
-    { name: '엘리', nameEn: 'Ellie', image: '/images/KakaoTalk_20251106_111302790.png', color: 'bg-teal-600' }, // Elephant
-    { name: '피피', nameEn: 'Pipi', image: '/images/KakaoTalk_20251106_111303519.png', color: 'bg-teal-600' }, // Bird
-    { name: '올리', nameEn: 'Ollie', image: '/images/KakaoTalk_20251106_111301981.png', color: 'bg-blue-600' }, // Owl
+    { name: '루비', nameEn: 'Ruby', image: '/images/KakaoTalk_20251106_111302420.png', color: 'bg-orange-500' },
+    { name: '엘리', nameEn: 'Ellie', image: '/images/KakaoTalk_20251106_111302790.png', color: 'bg-teal-600' },
+    { name: '피피', nameEn: 'Pipi', image: '/images/KakaoTalk_20251106_111303519.png', color: 'bg-teal-600' },
+    { name: '올리', nameEn: 'Ollie', image: '/images/KakaoTalk_20251106_111301981.png', color: 'bg-blue-600' },
 ];
 
 const currentCharacter = computed(() => characters[currentIndex.value] || characters[0]);
 
-const form = useForm({
-    question_id: null,
-    text: '',
-    audio: null,
+// Load answers from localStorage on mount
+onMounted(() => {
+    loadFromLocalStorage();
 });
 
-const isTranscribing = ref(false);
-const answerMode = ref('voice'); // 'voice' or 'text'
+// Save to localStorage
+const saveToLocalStorage = () => {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(answers.value));
+    } catch (error) {
+        console.error('Failed to save to localStorage:', error);
+    }
+};
+
+// Load from localStorage
+const loadFromLocalStorage = () => {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            answers.value = JSON.parse(saved);
+        }
+    } catch (error) {
+        console.error('Failed to load from localStorage:', error);
+        answers.value = {};
+    }
+};
 
 const nextQuestion = () => {
+    if (!currentAnswer.value.trim()) {
+        alert('Please answer the question before moving to the next one.');
+        return;
+    }
+    
     if (currentIndex.value < props.questions.length - 1) {
         currentIndex.value++;
-        resetForm();
+    } else {
+        // Last question - go to review
+        router.visit(route('review.index'));
     }
 };
 
 const previousQuestion = () => {
     if (currentIndex.value > 0) {
         currentIndex.value--;
-        resetForm();
     }
-};
-
-const resetForm = () => {
-    form.reset();
-    answerMode.value = 'voice';
-    isTranscribing.value = false;
 };
 
 const handleRecordingSaved = async (audioBlob) => {
     isTranscribing.value = true;
-    form.question_id = currentQuestion.value.id;
-    form.audio = new File([audioBlob], 'answer.webm', { type: 'audio/webm' });
 
-    // Send audio for transcription
     const formData = new FormData();
-    formData.append('audio', form.audio);
+    formData.append('audio', new File([audioBlob], 'answer.webm', { type: 'audio/webm' }));
 
     try {
         const response = await axios.post(route('questions.transcribe'), formData, {
@@ -77,45 +103,21 @@ const handleRecordingSaved = async (audioBlob) => {
         });
 
         if (response.data.text) {
-            // Set the transcription text in the form
-            form.text = response.data.text;
+            // Set the transcription text and auto-save to localStorage
+            currentAnswer.value = response.data.text;
         } else if (response.data.error) {
             console.error('Transcription error:', response.data.error);
             alert('Failed to transcribe audio. Please try typing your answer instead.');
         }
     } catch (error) {
         console.error('Transcription failed:', error);
-        console.error('Error response:', error.response?.data);
-        
         const errorMessage = error.response?.data?.error || 
                            error.response?.data?.message || 
                            'Failed to transcribe audio. Please try typing your answer instead.';
-        
         alert(errorMessage);
     } finally {
         isTranscribing.value = false;
     }
-};
-
-const submitTextAnswer = () => {
-    if (!form.text) return;
-    
-    form.question_id = currentQuestion.value.id;
-
-    form.post(route('questions.answer'), {
-        preserveScroll: true,
-        onSuccess: () => {
-            if (!isLastQuestion.value) {
-                nextQuestion();
-            } else {
-                router.visit(route('review.index'));
-            }
-        },
-    });
-};
-
-const getUserAnswer = (questionId) => {
-    return props.userAnswers.find(a => a.question_id === questionId);
 };
 </script>
 
@@ -165,7 +167,7 @@ const getUserAnswer = (questionId) => {
                         </div>
                         
                         <textarea
-                            v-model="form.text"
+                            v-model="currentAnswer"
                             rows="8"
                             class="w-full px-4 py-3 border-2 border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
                             placeholder="Type or use voice to answer..."
@@ -195,14 +197,23 @@ const getUserAnswer = (questionId) => {
                     </div>
                 </div>
 
-                <!-- Next Button -->
-                <div class="flex justify-end mt-6">
+                <!-- Navigation Buttons -->
+                <div class="flex justify-between mt-6">
                     <button
-                        @click="submitTextAnswer"
-                        :disabled="!form.text || form.processing"
+                        v-if="currentIndex > 0"
+                        @click="previousQuestion"
+                        class="px-12 py-4 bg-gray-400 hover:bg-gray-500 text-white text-xl font-semibold rounded-full shadow-xl hover:shadow-2xl transition-all"
+                    >
+                        Back
+                    </button>
+                    <div v-else></div>
+                    
+                    <button
+                        @click="nextQuestion"
+                        :disabled="!currentAnswer || isTranscribing"
                         class="px-12 py-4 bg-blue-600 hover:bg-blue-700 text-white text-xl font-semibold rounded-full shadow-xl hover:shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
-                        {{ form.processing ? 'Saving...' : 'Next' }}
+                        {{ isLastQuestion ? 'Review' : 'Next' }}
                     </button>
                 </div>
             </div>

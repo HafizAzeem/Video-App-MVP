@@ -51,7 +51,13 @@ return [
         'credentials' => env('GOOGLE_APPLICATION_CREDENTIALS'),
     ],
 
-        'text_to_video' => [
+    'google' => [
+        'project_id' => env('GOOGLE_CLOUD_PROJECT_ID'),
+        'location' => env('GOOGLE_CLOUD_LOCATION', 'us-central1'),
+        'credentials' => env('GOOGLE_APPLICATION_CREDENTIALS'),
+    ],
+
+    'text_to_video' => [
         'provider' => env('VIDEO_PROVIDER', 'google_veo'),
     ],
 

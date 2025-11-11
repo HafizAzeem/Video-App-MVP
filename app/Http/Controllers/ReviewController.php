@@ -19,81 +19,73 @@ class ReviewController extends Controller
     ) {}
 
     /**
-     * Show review page with user answers
+     * Show review page - answers come from localStorage on frontend
      */
     public function index(): Response
     {
         $questions = Question::where('is_active', true)
             ->orderBy('order')
-            ->get();
-
-        $answers = auth()->user()
-            ->answers()
-            ->with('question')
-            ->whereIn('question_id', $questions->pluck('id'))
-            ->get();
-
-        // Check if all questions are answered
-        $allAnswered = $questions->count() === $answers->count();
-
-        Log::info('Review page loaded', [
-            'questions_count' => $questions->count(),
-            'answers_count' => $answers->count(),
-            'all_answered' => $allAnswered,
-            'answers' => $answers->map(fn($a) => [
-                'question_id' => $a->question_id,
-                'question_text' => $a->question->text ?? 'N/A',
-                'answer_text' => $a->text,
-            ])->toArray(),
-        ]);
-
-        // Auto-generate video prompt if not in session
-        $videoPrompt = session('video_prompt');
-
-        if ($allAnswered && ! $videoPrompt) {
-            try {
-                // Format answers for GPT
-                $formattedAnswers = $answers->map(function ($answer) {
-                    return $answer->text;
-                })->toArray();
-
-                Log::info('Generating summary from answers', [
-                    'answers' => $formattedAnswers,
-                ]);
-
-                // First, summarize the answers into a story
-                $summary = $this->gptService->summarizeAnswers($formattedAnswers);
-
-                Log::info('Summary generated', [
-                    'summary' => $summary,
-                ]);
-
-                // Then, generate video prompt from the summary
-                $videoPrompt = $this->gptService->generateVideoPrompt($summary);
-
-                Log::info('Video prompt generated', [
-                    'prompt' => $videoPrompt,
-                ]);
-
-                // Store in session
-                session(['video_prompt' => $videoPrompt]);
-            } catch (\Exception $e) {
-                Log::error('Failed to generate video prompt', [
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
-                ]);
-            }
-        } else {
-            Log::info('Skipping video prompt generation', [
-                'all_answered' => $allAnswered,
-                'has_session_prompt' => ! empty($videoPrompt),
-                'session_prompt' => $videoPrompt,
-            ]);
-        }
+            ->get(['id', 'text', 'order']);
 
         return Inertia::render('ReviewSimple', [
-            'videoPrompt' => $videoPrompt,
+            'questions' => $questions,
         ]);
+    }
+
+    /**
+     * Generate video prompt from answers (received from frontend localStorage)
+     */
+    public function generatePrompt(Request $request)
+    {
+        $request->validate([
+            'answers' => 'required|array',
+            'answers.*.question' => 'required|string',
+            'answers.*.answer' => 'required|string',
+        ]);
+
+        try {
+            $formattedAnswers = collect($request->answers)->pluck('answer')->toArray();
+
+            Log::info('Generating summary from answers', [
+                'answers' => $formattedAnswers,
+            ]);
+
+            // First, summarize the answers into a story
+            $summary = $this->gptService->summarizeAnswers($formattedAnswers);
+
+            Log::info('Summary generated', [
+                'summary' => $summary,
+            ]);
+
+            // Then, generate video prompt from the summary
+            $videoPrompt = $this->gptService->generateVideoPrompt($summary);
+
+            Log::info('Video prompt generated', [
+                'prompt' => $videoPrompt,
+            ]);
+
+            // Store in session for production page
+            session([
+                'video_prompt' => $videoPrompt,
+                'summary' => $summary,
+                'answers' => $request->answers,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'videoPrompt' => $videoPrompt,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to generate video prompt', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
