@@ -87,14 +87,20 @@ const previousQuestion = () => {
     }
 };
 
-const handleTranscribed = (text) => {
-    // Update answer in real-time as user speaks
-    currentAnswer.value = text;
-};
-
-const handleTranscriptSaved = (text) => {
-    // Save the final transcript
-    currentAnswer.value = text;
+const handleTranscribed = (text, shouldAppend = false) => {
+    // If shouldAppend is true and text is not empty, append to existing answer
+    // If shouldAppend is false or text is empty, replace the answer
+    if (shouldAppend && text) {
+        // Append with a space if there's existing text
+        if (currentAnswer.value.trim()) {
+            currentAnswer.value = currentAnswer.value.trim() + ' ' + text;
+        } else {
+            currentAnswer.value = text;
+        }
+    } else {
+        // Replace (used for clearing)
+        currentAnswer.value = text;
+    }
 };
 </script>
 
@@ -146,7 +152,6 @@ const handleTranscriptSaved = (text) => {
                             :max-duration="120"
                             language="en-US"
                             @transcribed="handleTranscribed"
-                            @saved="handleTranscriptSaved"
                             class="inline-block"
                         />
                     </div>

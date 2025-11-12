@@ -38,11 +38,10 @@
                 </span>
             </p>
 
-            <!-- Live Transcript -->
-            <div v-if="interimTranscript || finalTranscript" class="mt-4 p-4 bg-gray-50 rounded-lg">
-                <p class="text-sm text-gray-800">
-                    <span class="font-medium">{{ finalTranscript }}</span>
-                    <span class="text-gray-500 italic">{{ interimTranscript }}</span>
+            <!-- Live Transcript Preview -->
+            <div v-if="interimTranscript" class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <p class="text-sm text-gray-600">
+                    <span class="text-blue-600 italic">{{ interimTranscript }}</span>
                 </p>
             </div>
 
@@ -51,23 +50,14 @@
                 {{ formatTime(recordingTime) }}
             </div>
 
-            <!-- Action Buttons (after recording) -->
-            <div v-if="finalTranscript && !isRecording" class="mt-6 space-y-4">
-                <div class="flex justify-center space-x-3">
-                    <button
-                        @click="retryRecording"
-                        class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                    >
-                        Re-record
-                    </button>
-                    <button
-                        @click="saveTranscript"
-                        :disabled="isProcessing"
-                        class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
-                    >
-                        Save Answer
-                    </button>
-                </div>
+            <!-- Clear Text Button (only when there's text and not recording) -->
+            <div v-if="hasRecordedText && !isRecording" class="mt-4">
+                <button
+                    @click="clearText"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                    Clear Text
+                </button>
             </div>
 
             <!-- Browser Support Info -->
@@ -99,17 +89,17 @@ const props = defineProps({
     },
 });
 
-const emit = defineEmits(['transcribed', 'saved']);
+const emit = defineEmits(['transcribed']);
 
 // State
 const recognition = ref(null);
 const isRecording = ref(false);
 const isProcessing = ref(false);
 const isSupported = ref(false);
-const finalTranscript = ref('');
 const interimTranscript = ref('');
 const recordingTime = ref(0);
 const recordingInterval = ref(null);
+const hasRecordedText = ref(false);
 
 // Check browser support
 onMounted(() => {
@@ -151,23 +141,25 @@ const initRecognition = (SpeechRecognition) => {
 
     recognition.value.onresult = (event) => {
         let interim = '';
-        let final = '';
+        let currentFinal = '';
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
             const transcript = event.results[i][0].transcript;
             
             if (event.results[i].isFinal) {
-                final += transcript + ' ';
+                currentFinal += transcript + ' ';
             } else {
                 interim += transcript;
             }
         }
 
-        if (final) {
-            finalTranscript.value += final;
-            emit('transcribed', finalTranscript.value.trim());
+        // Emit final results immediately to append to textarea
+        if (currentFinal) {
+            hasRecordedText.value = true;
+            emit('transcribed', currentFinal.trim(), true); // true means append
         }
         
+        // Show interim results in preview only
         interimTranscript.value = interim;
     };
 
@@ -204,6 +196,9 @@ const initRecognition = (SpeechRecognition) => {
         if (recordingInterval.value) {
             clearInterval(recordingInterval.value);
         }
+        
+        // Clear interim text when recording stops
+        interimTranscript.value = '';
     };
 };
 
@@ -224,8 +219,7 @@ const startRecording = () => {
     if (!recognition.value) return;
 
     try {
-        // Reset transcripts
-        finalTranscript.value = '';
+        // Don't reset - we want to append text
         interimTranscript.value = '';
         
         recognition.value.start();
@@ -241,28 +235,12 @@ const stopRecording = () => {
     }
 };
 
-const retryRecording = () => {
-    finalTranscript.value = '';
+const clearText = () => {
+    hasRecordedText.value = false;
     interimTranscript.value = '';
     recordingTime.value = 0;
-};
-
-const saveTranscript = () => {
-    if (!finalTranscript.value.trim()) {
-        alert('No transcript to save. Please record your answer first.');
-        return;
-    }
-
-    isProcessing.value = true;
-    emit('saved', finalTranscript.value.trim());
-
-    setTimeout(() => {
-        isProcessing.value = false;
-        // Clear after save
-        finalTranscript.value = '';
-        interimTranscript.value = '';
-        recordingTime.value = 0;
-    }, 500);
+    // Emit empty string to clear the textarea
+    emit('transcribed', '', false);
 };
 
 const formatTime = (seconds) => {
