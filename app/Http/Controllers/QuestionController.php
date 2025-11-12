@@ -32,6 +32,16 @@ class QuestionController extends Controller
 
     /**
      * Transcribe audio immediately (synchronous for demo)
+     *
+     * @deprecated This method is no longer used. Speech recognition is now handled
+     * client-side using the Web Speech API in SpeechRecorder.vue component.
+     * This provides:
+     * - Instant transcription without API calls
+     * - No cost (free, browser-based)
+     * - Real-time feedback as user speaks
+     * - No server load or network latency
+     *
+     * Kept for backward compatibility or fallback if needed.
      */
     public function transcribeAudio(Request $request)
     {
