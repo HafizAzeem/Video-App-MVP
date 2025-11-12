@@ -1,13 +1,22 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, router } from '@inertiajs/vue3';
+import { Head, router, Link } from '@inertiajs/vue3';
 import { ref } from 'vue';
 import VideoPlayer from '@/Components/VideoPlayer.vue';
 
 const props = defineProps({
     videos: {
-        type: Array,
-        default: () => [],
+        type: Object,
+        required: true,
+    },
+    stats: {
+        type: Object,
+        default: () => ({
+            total: 0,
+            completed: 0,
+            processing: 0,
+            failed: 0,
+        }),
     },
 });
 
@@ -103,8 +112,67 @@ const getStatusBadgeClass = (status) => {
                     </button>
                 </div>
 
+                <!-- Stats Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                    <div class="bg-white rounded-xl shadow-md p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-gray-600 text-sm">Total Videos</p>
+                                <p class="text-3xl font-bold text-gray-900 mt-1">{{ stats.total }}</p>
+                            </div>
+                            <div class="bg-indigo-100 p-3 rounded-lg">
+                                <svg class="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-md p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-gray-600 text-sm">Completed</p>
+                                <p class="text-3xl font-bold text-green-600 mt-1">{{ stats.completed }}</p>
+                            </div>
+                            <div class="bg-green-100 p-3 rounded-lg">
+                                <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-md p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-gray-600 text-sm">Processing</p>
+                                <p class="text-3xl font-bold text-yellow-600 mt-1">{{ stats.processing }}</p>
+                            </div>
+                            <div class="bg-yellow-100 p-3 rounded-lg">
+                                <svg class="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-md p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-gray-600 text-sm">Failed</p>
+                                <p class="text-3xl font-bold text-red-600 mt-1">{{ stats.failed }}</p>
+                            </div>
+                            <div class="bg-red-100 p-3 rounded-lg">
+                                <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Empty State -->
-                <div v-if="videos.length === 0" class="text-center py-20">
+                <div v-if="videos.data && videos.data.length === 0" class="text-center py-20">
                     <div class="w-32 h-32 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
                         <svg class="w-16 h-16 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
@@ -127,7 +195,7 @@ const getStatusBadgeClass = (status) => {
                 <!-- Video Grid -->
                 <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     <div
-                        v-for="video in videos"
+                        v-for="video in videos.data"
                         :key="video.id"
                         class="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300 cursor-pointer group"
                     >
@@ -180,8 +248,12 @@ const getStatusBadgeClass = (status) => {
                                 </span>
                             </div>
 
-                            <p v-if="video.prompt" class="text-gray-600 text-sm mb-4 line-clamp-2">
+                            <p v-if="video.prompt" class="text-gray-600 text-sm mb-2 line-clamp-2">
                                 {{ video.prompt }}
+                            </p>
+
+                            <p v-if="video.summary_text" class="text-gray-500 text-xs mb-3 line-clamp-3 italic">
+                                {{ video.summary_text }}
                             </p>
 
                             <div class="flex items-center text-xs text-gray-500 mb-4">
@@ -224,6 +296,28 @@ const getStatusBadgeClass = (status) => {
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <!-- Pagination -->
+                <div v-if="videos.data && videos.data.length > 0 && videos.links.length > 3" class="mt-8 flex justify-center">
+                    <nav class="flex items-center space-x-2">
+                        <Link
+                            v-for="(link, index) in videos.links"
+                            :key="index"
+                            :href="link.url"
+                            v-html="link.label"
+                            :class="[
+                                'px-4 py-2 rounded-lg font-medium transition-all duration-300',
+                                link.active
+                                    ? 'bg-indigo-600 text-white shadow-lg'
+                                    : link.url
+                                    ? 'bg-white text-gray-700 hover:bg-indigo-50 shadow'
+                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            ]"
+                            :disabled="!link.url"
+                            preserve-scroll
+                        />
+                    </nav>
                 </div>
             </div>
         </div>

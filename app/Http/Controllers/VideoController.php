@@ -110,7 +110,6 @@ class VideoController extends Controller
     {
         $videos = auth()->user()
             ->videos()
-            ->where('status', 'completed')
             ->latest()
             ->paginate(12);
 

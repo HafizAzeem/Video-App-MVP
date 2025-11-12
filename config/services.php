@@ -59,6 +59,9 @@ return [
 
     'text_to_video' => [
         'provider' => env('VIDEO_PROVIDER', 'google_veo'),
+        'mode' => env('VIDEO_MODE', 'test'), // 'test' or 'production'
+        'gcs_bucket' => env('GCS_BUCKET'),
+        'gcs_project_id' => env('GCS_PROJECT_ID'),
     ],
 
     'stt' => [

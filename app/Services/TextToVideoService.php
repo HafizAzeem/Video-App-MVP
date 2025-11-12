@@ -138,8 +138,18 @@ class TextToVideoService
 
             // Check if simulation is complete
             if ($elapsedSeconds >= $simulationDuration) {
-                // Generate a sample video URL (in production, this would be from the API)
-                $videoUrl = "https://storage.googleapis.com/sample-videos/{$taskId}.mp4";
+                // Check if we're in test mode or production mode
+                $videoMode = config('services.text_to_video.mode', 'test');
+
+                if ($videoMode === 'production') {
+                    // PRODUCTION MODE: Use real Google Veo API
+                    // TODO: Implement actual Google Veo API call here
+                    // This requires Google Cloud credentials and billing enabled
+                    $videoUrl = $this->generateRealVideo($taskData['prompt']);
+                } else {
+                    // TEST MODE: Use sample video for testing
+                    $videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+                }
 
                 $taskData['status'] = 'completed';
                 $taskData['progress'] = 100;
@@ -151,6 +161,7 @@ class TextToVideoService
                 Log::info('Video generation completed', [
                     'task_id' => $taskId,
                     'video_url' => $videoUrl,
+                    'mode' => $videoMode,
                     'elapsed_seconds' => $elapsedSeconds,
                 ]);
 
@@ -213,5 +224,30 @@ class TextToVideoService
 
             return false;
         }
+    }
+
+    /**
+     * Generate real video using Google Veo API
+     * This method will be called when VIDEO_MODE=production
+     *
+     * @param  string  $prompt  The video generation prompt
+     * @return string The video URL from Google Cloud Storage
+     */
+    protected function generateRealVideo(string $prompt): string
+    {
+        // TODO: Implement actual Google Veo API integration
+        // This requires:
+        // 1. Google Cloud credentials properly configured
+        // 2. Vertex AI API enabled
+        // 3. Billing account with credits
+        // 4. Google Cloud Storage bucket for video storage
+
+        Log::warning('Real video generation not yet implemented', [
+            'prompt' => substr($prompt, 0, 100),
+            'note' => 'Using test video URL as fallback',
+        ]);
+
+        // For now, return test video until real API is implemented
+        return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
     }
 }
