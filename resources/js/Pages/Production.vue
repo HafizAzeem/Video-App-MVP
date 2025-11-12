@@ -242,14 +242,14 @@ const goBack = () => {
                             <VideoPlayer :src="videoUrl" />
                         </div>
 
-                        <div class="flex justify-end">
+                        <!-- <div class="flex justify-end">
                             <button
                                 @click="goToGallery"
                                 class="px-12 py-4 bg-blue-600 hover:bg-blue-700 text-white text-xl font-semibold rounded-full shadow-xl hover:shadow-2xl transition-all duration-300"
                             >
                                 Save to Gallery
                             </button>
-                        </div>
+                        </div> -->
                     </div>
 
                     <!-- Failed State -->
