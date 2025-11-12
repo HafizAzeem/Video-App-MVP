@@ -102,10 +102,14 @@ const checkVideoStatus = () => {
                 props.video.error_message = video.error_message;
                 stopPolling();
             } else if (video.status === 'processing') {
-                // Update progress based on elapsed time (simulated)
-                const currentProgress = Math.min(progress.value + 5, 95);
-                progress.value = currentProgress;
-                statusMessage.value = 'Generating your video with Google Veo...';
+                // Use real progress from backend if available, otherwise increment slowly
+                if (video.metadata && video.metadata.progress !== undefined) {
+                    progress.value = Math.round(video.metadata.progress);
+                } else {
+                    // Fallback: increment by 2% each check, no cap
+                    progress.value = Math.min(progress.value + 2, 99);
+                }
+                statusMessage.value = 'Generating your video...';
                 props.video.status = video.status;
             }
         })

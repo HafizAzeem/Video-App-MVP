@@ -8,7 +8,6 @@ use App\Services\GPTService;
 use App\Services\TextToVideoService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -60,7 +59,7 @@ class VideoController extends Controller
         $answers = session('answers');
 
         if (! $videoPrompt || ! $summary) {
-            return response()->json(['error' => 'Missing required data'], 400);
+            return redirect()->back()->with('error', 'Missing required data');
         }
 
         try {
@@ -79,14 +78,13 @@ class VideoController extends Controller
             // Dispatch job for async video generation
             GenerateVideoJob::dispatch($video);
 
-            return response()->json([
+            // Redirect back to production page which will now show the new video
+            return redirect()->back()->with([
                 'success' => true,
-                'video_id' => $video->id,
-                'status' => 'pending',
                 'message' => 'Video generation started!',
             ]);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            return redirect()->back()->with('error', $e->getMessage());
         }
     }
 

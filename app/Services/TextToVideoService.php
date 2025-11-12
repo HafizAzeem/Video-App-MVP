@@ -8,51 +8,210 @@ class TextToVideoService
 {
     protected string $provider;
 
+    protected int $simulationDuration = 60; // seconds
+
     public function __construct()
     {
-        $this->provider = config('services.text_to_video.provider', 'google_veo');
+        $this->provider = config('services.text_to_video.provider', 'simulated');
     }
 
+    /**
+     * Generate video - Currently using simulation
+     *
+     * IMPORTANT: This is a simulated implementation.
+     * Google Veo API requires OAuth2 service account authentication, not API keys.
+     *
+     * To use real Google Veo API, you need to:
+     * 1. Create a service account in Google Cloud Console
+     * 2. Download the JSON credentials file
+     * 3. Install google/cloud-aiplatform package
+     * 4. Use proper OAuth2 authentication
+     */
     public function generate(string $prompt, array $options = []): array
     {
-        $taskId = 'veo_' . uniqid();
-        $videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-
-        $taskData = [
-            'task_id' => $taskId,
-            'status' => 'completed',
-            'provider' => 'google_veo',
-            'prompt' => $prompt,
-            'video_url' => $videoUrl,
-        ];
-
-        cache()->put("video_task_{$taskId}", $taskData, now()->addDays(7));
-        Log::info('Video generated', ['task_id' => $taskId]);
-
-        return [
-            'task_id' => $taskId,
-            'status' => 'completed',
-            'provider' => 'google_veo',
-        ];
-    }
-
-    public function checkStatus(string $taskId): array
-    {
-        $taskData = cache()->get("video_task_{$taskId}");
-
-        if (!$taskData) {
-            return ['status' => 'not_found', 'video_url' => null, 'progress' => 0];
+        if (empty($prompt)) {
+            throw new \InvalidArgumentException('Video prompt cannot be empty');
         }
 
-        return [
-            'status' => $taskData['status'],
-            'video_url' => $taskData['video_url'] ?? null,
-            'progress' => 100,
-        ];
+        try {
+            Log::info('Starting video generation (SIMULATED)', [
+                'prompt_length' => strlen($prompt),
+                'prompt_preview' => substr($prompt, 0, 100),
+                'options' => $options,
+            ]);
+
+            // Generate unique task ID
+            $taskId = 'video_'.uniqid().'_'.time();
+
+            // Store task information in cache with simulated processing
+            $taskData = [
+                'task_id' => $taskId,
+                'status' => 'processing',
+                'provider' => 'simulated',
+                'prompt' => $prompt,
+                'created_at' => now()->toIso8601String(),
+                'simulation_start' => now()->toIso8601String(),
+                'simulation_duration' => $this->simulationDuration,
+                'progress' => 0,
+            ];
+
+            cache()->put("video_task_{$taskId}", $taskData, now()->addHours(2));
+
+            Log::info('Video generation task created (simulated)', [
+                'task_id' => $taskId,
+                'duration' => $this->simulationDuration,
+            ]);
+
+            return [
+                'task_id' => $taskId,
+                'status' => 'processing',
+                'provider' => 'simulated',
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Video generation failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        }
     }
 
-    public function generateAdvanced(string $prompt, array $options = []): array
+    /**
+     * Check video generation status
+     */
+    public function checkStatus(string $taskId): array
     {
-        return $this->generate($prompt, $options);
+        try {
+            $taskData = cache()->get("video_task_{$taskId}");
+
+            if (! $taskData) {
+                Log::error('Video task not found in cache', ['task_id' => $taskId]);
+
+                return [
+                    'status' => 'not_found',
+                    'video_url' => null,
+                    'progress' => 0,
+                    'error' => 'Task not found',
+                ];
+            }
+
+            // If already completed or failed, return cached result
+            if (in_array($taskData['status'], ['completed', 'failed'])) {
+                Log::info('Returning cached video status', [
+                    'task_id' => $taskId,
+                    'status' => $taskData['status'],
+                    'progress' => $taskData['status'] === 'completed' ? 100 : 0,
+                ]);
+
+                return [
+                    'status' => $taskData['status'],
+                    'video_url' => $taskData['video_url'] ?? null,
+                    'progress' => $taskData['status'] === 'completed' ? 100 : 0,
+                    'error' => $taskData['error'] ?? null,
+                ];
+            }
+
+            // Calculate progress based on elapsed time
+            $simulationStart = \Carbon\Carbon::parse($taskData['simulation_start']);
+            $elapsedSeconds = $simulationStart->diffInSeconds(now(), false);
+
+            // Ensure elapsed time is positive
+            if ($elapsedSeconds < 0) {
+                $elapsedSeconds = 0;
+            }
+
+            $simulationDuration = $taskData['simulation_duration'] ?? 60;
+
+            // Calculate progress (0-100%)
+            $progress = min(100, max(0, ($elapsedSeconds / $simulationDuration) * 100));
+
+            Log::info('Video generation progress', [
+                'task_id' => $taskId,
+                'elapsed_seconds' => $elapsedSeconds,
+                'total_duration' => $simulationDuration,
+                'progress' => round($progress, 2),
+            ]);
+
+            // Update progress in cache
+            $taskData['progress'] = $progress;
+
+            // Check if simulation is complete
+            if ($elapsedSeconds >= $simulationDuration) {
+                // Generate a sample video URL (in production, this would be from the API)
+                $videoUrl = "https://storage.googleapis.com/sample-videos/{$taskId}.mp4";
+
+                $taskData['status'] = 'completed';
+                $taskData['progress'] = 100;
+                $taskData['video_url'] = $videoUrl;
+                $taskData['completed_at'] = now()->toIso8601String();
+
+                cache()->put("video_task_{$taskId}", $taskData, now()->addDays(7));
+
+                Log::info('Video generation completed', [
+                    'task_id' => $taskId,
+                    'video_url' => $videoUrl,
+                    'elapsed_seconds' => $elapsedSeconds,
+                ]);
+
+                return [
+                    'status' => 'completed',
+                    'progress' => 100,
+                    'video_url' => $videoUrl,
+                ];
+            }
+
+            // Still processing - update cache
+            cache()->put("video_task_{$taskId}", $taskData, now()->addHours(2));
+
+            return [
+                'status' => 'processing',
+                'progress' => round($progress, 2),
+                'video_url' => null,
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Status check failed', [
+                'error' => $e->getMessage(),
+                'task_id' => $taskId,
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return [
+                'status' => 'error',
+                'video_url' => null,
+                'progress' => 0,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Cancel a video generation task
+     */
+    public function cancel(string $taskId): bool
+    {
+        try {
+            $taskData = cache()->get("video_task_{$taskId}");
+
+            if (! $taskData) {
+                return false;
+            }
+
+            $taskData['status'] = 'failed';
+            $taskData['error'] = 'Cancelled by user';
+            cache()->put("video_task_{$taskId}", $taskData, now()->addDays(7));
+
+            Log::info('Video generation cancelled', ['task_id' => $taskId]);
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error('Failed to cancel video generation', [
+                'task_id' => $taskId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
     }
 }
