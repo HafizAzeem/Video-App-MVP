@@ -147,9 +147,11 @@ const handleTranscribed = (text, shouldAppend = false) => {
                     </div>
 
                     <!-- Speech Recorder -->
+                    <!-- Auto-stops after 4 seconds of silence -->
                     <div class="flex justify-center">
                         <SpeechRecorder
                             :max-duration="120"
+                            :silence-timeout="4000"
                             language="en-US"
                             @transcribed="handleTranscribed"
                             class="inline-block"

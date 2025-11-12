@@ -87,6 +87,10 @@ const props = defineProps({
         type: Boolean,
         default: true,
     },
+    silenceTimeout: {
+        type: Number,
+        default: 4000, // 4 seconds of silence before auto-stop (in milliseconds)
+    },
 });
 
 const emit = defineEmits(['transcribed']);
@@ -100,6 +104,7 @@ const interimTranscript = ref('');
 const recordingTime = ref(0);
 const recordingInterval = ref(null);
 const hasRecordedText = ref(false);
+const silenceTimer = ref(null);
 
 // Check browser support
 onMounted(() => {
@@ -153,6 +158,9 @@ const initRecognition = (SpeechRecognition) => {
             }
         }
 
+        // Reset silence timer on any speech activity
+        resetSilenceTimer();
+
         // Emit final results immediately to append to textarea
         if (currentFinal) {
             hasRecordedText.value = true;
@@ -197,9 +205,30 @@ const initRecognition = (SpeechRecognition) => {
             clearInterval(recordingInterval.value);
         }
         
+        // Clear silence timer
+        if (silenceTimer.value) {
+            clearTimeout(silenceTimer.value);
+            silenceTimer.value = null;
+        }
+        
         // Clear interim text when recording stops
         interimTranscript.value = '';
     };
+};
+
+const resetSilenceTimer = () => {
+    // Clear existing timer
+    if (silenceTimer.value) {
+        clearTimeout(silenceTimer.value);
+    }
+    
+    // Start new timer that will stop recording after silence period
+    silenceTimer.value = setTimeout(() => {
+        if (isRecording.value) {
+            console.log('Auto-stopping due to silence');
+            stopRecording();
+        }
+    }, props.silenceTimeout);
 };
 
 const toggleRecording = () => {
@@ -223,6 +252,9 @@ const startRecording = () => {
         interimTranscript.value = '';
         
         recognition.value.start();
+        
+        // Start silence detection timer
+        resetSilenceTimer();
     } catch (error) {
         console.error('Error starting recognition:', error);
         alert('Failed to start recording. Please try again.');
@@ -231,6 +263,12 @@ const startRecording = () => {
 
 const stopRecording = () => {
     if (recognition.value && isRecording.value) {
+        // Clear silence timer when manually stopping
+        if (silenceTimer.value) {
+            clearTimeout(silenceTimer.value);
+            silenceTimer.value = null;
+        }
+        
         recognition.value.stop();
     }
 };
@@ -253,6 +291,9 @@ const formatTime = (seconds) => {
 onUnmounted(() => {
     if (recordingInterval.value) {
         clearInterval(recordingInterval.value);
+    }
+    if (silenceTimer.value) {
+        clearTimeout(silenceTimer.value);
     }
     if (isRecording.value && recognition.value) {
         recognition.value.stop();
