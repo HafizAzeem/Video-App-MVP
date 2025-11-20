@@ -235,19 +235,220 @@ class TextToVideoService
      */
     protected function generateRealVideo(string $prompt): string
     {
-        // TODO: Implement actual Google Veo API integration
-        // This requires:
-        // 1. Google Cloud credentials properly configured
-        // 2. Vertex AI API enabled
-        // 3. Billing account with credits
-        // 4. Google Cloud Storage bucket for video storage
+        try {
+            Log::info('Starting real Veo API video generation', [
+                'prompt' => substr($prompt, 0, 100),
+            ]);
 
-        Log::warning('Real video generation not yet implemented', [
-            'prompt' => substr($prompt, 0, 100),
-            'note' => 'Using test video URL as fallback',
+            // Initialize HTTP client with OAuth2 authentication
+            $httpClient = $this->initializeHttpClient();
+
+            // Call Veo API
+            $operationName = $this->callVeoAPI($httpClient, $prompt);
+
+            // Poll for completion (with timeout)
+            $maxAttempts = 60; // 10 minutes max (60 attempts * 10 seconds)
+            $attempt = 0;
+
+            while ($attempt < $maxAttempts) {
+                sleep(10); // Wait 10 seconds between polls
+
+                $result = $this->pollOperationStatus($httpClient, $operationName);
+
+                if ($result['done'] ?? false) {
+                    // Log full response to debug
+                    Log::info('Veo operation completed - full response', [
+                        'result' => $result,
+                    ]);
+
+                    // Extract GCS URI from response - try multiple possible paths
+                    $gcsUri = $result['response']['videos'][0]['gcsUri']
+                        ?? $result['response']['generatedSamples'][0]['videoUri']
+                        ?? $result['response']['predictions'][0]['gcsUri']
+                        ?? $result['response']['gcsUri']
+                        ?? null;
+
+                    if ($gcsUri) {
+                        // Convert to public URL
+                        $storageService = app(CloudStorageService::class);
+                        $publicUrl = $storageService->convertGcsUriToPublicUrl($gcsUri);
+
+                        Log::info('Veo video generation completed', [
+                            'gcs_uri' => $gcsUri,
+                            'public_url' => $publicUrl,
+                            'attempts' => $attempt,
+                            'total_time' => ($attempt * 10).' seconds',
+                        ]);
+
+                        return $publicUrl;
+                    } else {
+                        // No GCS URI found in response
+                        Log::error('Veo operation done but no video URI found', [
+                            'response_keys' => array_keys($result),
+                            'response' => $result,
+                        ]);
+
+                        throw new \RuntimeException('Video generation completed but no video URI in response');
+                    }
+                }
+
+                $attempt++;
+            }
+
+            // Timeout reached
+            throw new \RuntimeException('Video generation timed out after 10 minutes');
+        } catch (\Exception $e) {
+            Log::error('Veo API video generation failed', [
+                'prompt' => substr($prompt, 0, 100),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            // Fallback to test video
+            Log::warning('Falling back to test video due to error');
+
+            return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+        }
+    }
+
+    /**
+     * Initialize HTTP client with OAuth2 authentication
+     */
+    protected function initializeHttpClient(): \GuzzleHttp\Client
+    {
+        $credentialsPath = config('services.google.credentials');
+
+        if (! file_exists($credentialsPath)) {
+            throw new \RuntimeException("Google credentials file not found: {$credentialsPath}");
+        }
+
+        // Load service account credentials
+        $credentials = json_decode(file_get_contents($credentialsPath), true);
+
+        if (! $credentials) {
+            throw new \RuntimeException('Invalid Google credentials file');
+        }
+
+        // Get OAuth2 access token using Google Auth library
+        $auth = new \Google\Auth\Credentials\ServiceAccountCredentials(
+            'https://www.googleapis.com/auth/cloud-platform',
+            $credentials
+        );
+
+        $accessToken = $auth->fetchAuthToken();
+
+        if (! isset($accessToken['access_token'])) {
+            throw new \RuntimeException('Failed to obtain OAuth2 access token');
+        }
+
+        // Create HTTP client with authorization header
+        return new \GuzzleHttp\Client([
+            'headers' => [
+                'Authorization' => 'Bearer '.$accessToken['access_token'],
+                'Content-Type' => 'application/json',
+            ],
+        ]);
+    }
+
+    /**
+     * Call Veo API to start video generation
+     *
+     * @return string Operation name for polling
+     */
+    protected function callVeoAPI(\GuzzleHttp\Client $client, string $prompt): string
+    {
+        $projectId = config('services.google.project_id');
+        $location = config('services.text_to_video.location', 'us-central1');
+        $model = config('services.text_to_video.model', 'veo-3.1-generate-001');
+        $bucket = config('services.text_to_video.gcs_bucket');
+
+        if (empty($bucket)) {
+            throw new \RuntimeException('GCS_BUCKET not configured in .env file');
+        }
+
+        // Generate unique output directory
+        $outputDir = 'videos/'.date('Y-m-d').'/'.uniqid();
+        $storageUri = "gs://{$bucket}/{$outputDir}/";
+
+        $endpoint = "https://{$location}-aiplatform.googleapis.com/v1/projects/{$projectId}/locations/{$location}/publishers/google/models/{$model}:predictLongRunning";
+
+        $requestBody = [
+            'instances' => [
+                [
+                    'prompt' => $prompt,
+                ],
+            ],
+            'parameters' => [
+                'storageUri' => $storageUri,
+                'sampleCount' => 1,
+                'durationSeconds' => 8, // 4, 6, or 8 seconds
+                'aspectRatio' => '16:9', // or '9:16'
+                'resolution' => '1080p', // or '720p'
+                'generateAudio' => true,
+            ],
+        ];
+
+        Log::info('Calling Veo API', [
+            'endpoint' => $endpoint,
+            'storage_uri' => $storageUri,
+            'model' => $model,
         ]);
 
-        // For now, return test video until real API is implemented
-        return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+        $response = $client->post($endpoint, [
+            'json' => $requestBody,
+        ]);
+
+        $result = json_decode($response->getBody()->getContents(), true);
+
+        $operationName = $result['name'] ?? null;
+
+        if (! $operationName) {
+            throw new \RuntimeException('No operation name returned from Veo API');
+        }
+
+        Log::info('Veo API call initiated', [
+            'operation_name' => $operationName,
+        ]);
+
+        return $operationName;
+    }
+
+    /**
+     * Poll operation status
+     *
+     * @return array Operation result
+     */
+    protected function pollOperationStatus(\GuzzleHttp\Client $client, string $operationName): array
+    {
+        $projectId = config('services.google.project_id');
+        $location = config('services.text_to_video.location', 'us-central1');
+        $model = config('services.text_to_video.model', 'veo-3.1-generate-001');
+
+        $endpoint = "https://{$location}-aiplatform.googleapis.com/v1/projects/{$projectId}/locations/{$location}/publishers/google/models/{$model}:fetchPredictOperation";
+
+        $response = $client->post($endpoint, [
+            'json' => [
+                'operationName' => $operationName,
+            ],
+        ]);
+
+        $result = json_decode($response->getBody()->getContents(), true);
+
+        // Enhanced logging - log full response when done
+        if ($result['done'] ?? false) {
+            Log::info('Veo operation COMPLETED - full response structure', [
+                'done' => true,
+                'operation_name' => $operationName,
+                'full_response' => $result,
+                'response_keys' => array_keys($result),
+            ]);
+        } else {
+            Log::debug('Veo operation status', [
+                'done' => false,
+                'operation_name' => $operationName,
+            ]);
+        }
+
+        return $result;
     }
 }

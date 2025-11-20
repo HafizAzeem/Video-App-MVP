@@ -62,6 +62,8 @@ return [
         'mode' => env('VIDEO_MODE', 'test'), // 'test' or 'production'
         'gcs_bucket' => env('GCS_BUCKET'),
         'gcs_project_id' => env('GCS_PROJECT_ID'),
+        'location' => env('GOOGLE_CLOUD_LOCATION', 'us-central1'),
+        'model' => env('VEO_MODEL', 'veo-3.1-generate-001'), // veo-3.1-generate-001, veo-3.1-fast-generate-001, veo-3.0-generate-001
     ],
 
     'stt' => [
