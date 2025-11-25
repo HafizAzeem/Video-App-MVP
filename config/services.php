@@ -54,7 +54,7 @@ return [
     'google' => [
         'project_id' => env('GOOGLE_CLOUD_PROJECT_ID'),
         'location' => env('GOOGLE_CLOUD_LOCATION', 'us-central1'),
-        'credentials' => env('GOOGLE_APPLICATION_CREDENTIALS'),
+        'credentials' => storage_path('app/google-credentials.json'),
     ],
 
     'text_to_video' => [

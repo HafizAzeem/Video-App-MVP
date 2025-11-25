@@ -18,7 +18,7 @@ const props = defineProps({
 });
 
 const isGenerating = ref(false);
-const progress = ref(0);
+const progress = ref(props.video?.progress ?? 0);
 const statusMessage = ref('');
 const pollInterval = ref(null);
 
@@ -95,6 +95,7 @@ const checkVideoStatus = () => {
                 // Update the video prop with new data
                 props.video.status = video.status;
                 props.video.video_url = video.video_url;
+                props.video.progress = 100;
                 stopPolling();
             } else if (video.status === 'failed') {
                 statusMessage.value = 'Video generation failed. Please try again.';
@@ -103,11 +104,16 @@ const checkVideoStatus = () => {
                 stopPolling();
             } else if (video.status === 'processing') {
                 // Use real progress from backend if available, otherwise increment slowly
-                if (video.metadata && video.metadata.progress !== undefined) {
-                    progress.value = Math.round(video.metadata.progress);
-                } else {
-                    // Fallback: increment by 2% each check, no cap
-                    progress.value = Math.min(progress.value + 2, 99);
+                const nextProgress = typeof video.progress === 'number'
+                    ? Math.min(100, Math.max(0, video.progress))
+                    : null;
+
+                // Only update if progress increases or is 100 (completed)
+                if (nextProgress !== null && (nextProgress > progress.value || nextProgress === 100)) {
+                    progress.value = nextProgress;
+                    props.video.progress = nextProgress;
+                } else if (nextProgress === null) {
+                    progress.value = Math.min(progress.value + 1, 95);
                 }
                 statusMessage.value = 'Generating your video...';
                 props.video.status = video.status;

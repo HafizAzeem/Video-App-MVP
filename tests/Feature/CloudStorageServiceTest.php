@@ -29,7 +29,7 @@ class CloudStorageServiceTest extends TestCase
         $gcsUri = 'gs://test-bucket/videos/test.mp4';
         $publicUrl = $service->convertGcsUriToPublicUrl($gcsUri);
 
-        $this->assertEquals('https://storage.cloud.google.com/test-bucket/videos/test.mp4', $publicUrl);
+        $this->assertEquals('https://storage.googleapis.com/test-bucket/videos/test.mp4', $publicUrl);
     }
 
     /**
@@ -43,7 +43,7 @@ class CloudStorageServiceTest extends TestCase
         $publicUrl = $service->getPublicUrl($path);
 
         $bucket = config('services.text_to_video.gcs_bucket');
-        $expectedUrl = "https://storage.cloud.google.com/{$bucket}/{$path}";
+        $expectedUrl = "https://storage.googleapis.com/{$bucket}/{$path}";
 
         $this->assertEquals($expectedUrl, $publicUrl);
     }

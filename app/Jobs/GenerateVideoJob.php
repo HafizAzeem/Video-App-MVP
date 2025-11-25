@@ -14,174 +14,105 @@ class GenerateVideoJob implements ShouldQueue
     use Queueable;
 
     public function __construct(
-        public Video $video
+        public int $videoId
     ) {}
 
     public function handle(TextToVideoService $videoService, GPTService $gptService): void
     {
-        try {
-            $this->video->update(['status' => 'processing']);
+        $video = Video::find($this->videoId);
 
-            // Generate video prompt from summary
-            $videoPrompt = $gptService->generateVideoPrompt($this->video->summary_text);
+        if (! $video) {
+            Log::warning('GenerateVideoJob received missing video', ['video_id' => $this->videoId]);
 
-            // Start video generation
-            $result = $videoService->generate($videoPrompt);
+            return;
+        }
 
-            // Store task ID in metadata
-            $this->video->update([
-                'metadata' => [
-                    'task_id' => $result['task_id'],
-                    'provider' => $result['provider'],
-                ],
+        if ($video->status !== 'pending') {
+            Log::info('Video already processed, skipping GenerateVideoJob', [
+                'video_id' => $video->id,
+                'status' => $video->status,
             ]);
 
-            // Poll for video completion (simplified - use queue retry in production)
-            $this->pollVideoStatus($videoService);
+            return;
+        }
 
+        try {
+            $prompt = $video->prompt ?: $gptService->generateVideoPrompt($video->summary_text);
+
+            if (! $video->prompt) {
+                $video->update(['prompt' => $prompt]);
+            }
+
+            $video->update([
+                'status' => 'processing',
+                'progress' => 0,
+            ]);
+
+            $result = $videoService->startGeneration($prompt);
+
+            // Test mode returns a completed result immediately
+            if (($result['status'] ?? null) === 'completed' && isset($result['video_url'])) {
+                $video->update([
+                    'status' => 'completed',
+                    'video_url' => $result['video_url'],
+                    'provider' => $result['provider'] ?? 'simulated',
+                    'mode' => $result['mode'] ?? config('services.text_to_video.mode', 'test'),
+                    'progress' => 100,
+                ]);
+
+                return;
+            }
+
+            $operationName = $result['operation_name'] ?? null;
+
+            if (! $operationName) {
+                throw new \RuntimeException('No operation name returned from Veo API');
+            }
+
+            $video->update([
+                'provider' => $result['provider'] ?? config('services.text_to_video.provider', 'google_veo'),
+                'mode' => $result['mode'] ?? config('services.text_to_video.mode', 'test'),
+                'operation_name' => $operationName,
+                'storage_uri' => $result['storage_uri'] ?? null,
+                'metadata' => array_merge($video->metadata ?? [], [
+                    'task_id' => $operationName,
+                ]),
+            ]);
+
+            // Poll operation status and update progress
+            $done = false;
+            $maxAttempts = 120;
+            $attempt = 0;
+            while (! $done && $attempt < $maxAttempts) {
+                sleep(10);
+                $poll = $videoService->pollOperation($operationName);
+                $progress = $poll['progress'] ?? null;
+                if ($progress !== null) {
+                    $video->update(['progress' => $progress]);
+                }
+                if ($poll['done'] ?? false) {
+                    $videoUrl = $poll['video_url'] ?? null;
+                    $video->update([
+                        'status' => 'completed',
+                        'video_url' => $videoUrl,
+                        'progress' => 100,
+                    ]);
+                    $done = true;
+                }
+                $attempt++;
+            }
         } catch (\Exception $e) {
-            $this->video->update([
+            Log::error('Video generation failed', [
+                'video_id' => $video->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            $video->update([
                 'status' => 'failed',
                 'error_message' => $e->getMessage(),
             ]);
 
-            Log::error('Video generation failed', [
-                'video_id' => $this->video->id,
-                'error' => $e->getMessage(),
-            ]);
-
             throw $e;
         }
-    }
-
-    protected function pollVideoStatus(TextToVideoService $videoService): void
-    {
-        $taskId = $this->video->metadata['task_id'] ?? null;
-
-        if (!$taskId) {
-            Log::error('No task ID found in video metadata', ['video_id' => $this->video->id]);
-            return;
-        }
-
-        $maxAttempts = 120; // 20 minutes max (120 * 10 seconds)
-        $attempt = 0;
-
-        Log::info('Starting video status polling', [
-            'video_id' => $this->video->id,
-            'task_id' => $taskId,
-            'max_attempts' => $maxAttempts,
-        ]);
-
-        while ($attempt < $maxAttempts) {
-            sleep(10); // Wait 10 seconds between checks
-
-            try {
-                $status = $videoService->checkStatus($taskId);
-
-                Log::info('Video status check', [
-                    'video_id' => $this->video->id,
-                    'attempt' => $attempt + 1,
-                    'status' => $status['status'],
-                    'progress' => $status['progress'] ?? 0,
-                ]);
-
-                // Update video progress
-                if (isset($status['progress'])) {
-                    $this->video->update([
-                        'metadata' => array_merge($this->video->metadata ?? [], [
-                            'progress' => $status['progress'],
-                            'last_checked' => now()->toIso8601String(),
-                        ]),
-                    ]);
-                }
-
-                if ($status['status'] === 'completed') {
-                    if (empty($status['video_url'])) {
-                        Log::error('Video marked as completed but no URL provided', [
-                            'video_id' => $this->video->id,
-                            'task_id' => $taskId,
-                            'status_response' => $status,
-                        ]);
-                        
-                        $this->video->update([
-                            'status' => 'failed',
-                            'error_message' => 'Video completed but no URL received from API',
-                        ]);
-                        
-                        return;
-                    }
-
-                    $this->video->update([
-                        'status' => 'completed',
-                        'video_url' => $status['video_url'],
-                    ]);
-
-                    Log::info('Video generation completed successfully', [
-                        'video_id' => $this->video->id,
-                        'video_url' => $status['video_url'],
-                        'attempts' => $attempt + 1,
-                    ]);
-
-                    return;
-                }
-
-                if ($status['status'] === 'failed' || $status['status'] === 'error') {
-                    $errorMessage = $status['error'] ?? 'Video generation failed on provider side';
-                    
-                    Log::error('Video generation failed', [
-                        'video_id' => $this->video->id,
-                        'task_id' => $taskId,
-                        'error' => $errorMessage,
-                        'status_response' => $status,
-                    ]);
-
-                    $this->video->update([
-                        'status' => 'failed',
-                        'error_message' => $errorMessage,
-                    ]);
-
-                    return;
-                }
-
-                // Check if stuck at 95% for too long
-                if (isset($status['progress']) && $status['progress'] >= 95 && $attempt > 30) {
-                    Log::warning('Video stuck at high progress percentage', [
-                        'video_id' => $this->video->id,
-                        'progress' => $status['progress'],
-                        'attempts' => $attempt + 1,
-                    ]);
-                }
-
-            } catch (\Exception $e) {
-                Log::error('Error checking video status', [
-                    'video_id' => $this->video->id,
-                    'task_id' => $taskId,
-                    'attempt' => $attempt + 1,
-                    'error' => $e->getMessage(),
-                ]);
-                
-                // Continue polling unless it's a fatal error
-                if (str_contains($e->getMessage(), 'not found') || 
-                    str_contains($e->getMessage(), 'Authentication failed')) {
-                    throw $e;
-                }
-            }
-
-            $attempt++;
-        }
-
-        // Timeout - log detailed information
-        Log::error('Video generation timeout', [
-            'video_id' => $this->video->id,
-            'task_id' => $taskId,
-            'attempts' => $maxAttempts,
-            'duration_minutes' => ($maxAttempts * 10) / 60,
-            'last_metadata' => $this->video->fresh()->metadata,
-        ]);
-
-        $this->video->update([
-            'status' => 'failed',
-            'error_message' => 'Video generation timeout after ' . (($maxAttempts * 10) / 60) . ' minutes',
-        ]);
     }
 }

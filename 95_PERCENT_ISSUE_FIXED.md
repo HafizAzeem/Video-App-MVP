@@ -14,12 +14,15 @@ The frontend was **artificially limiting** progress to 95% maximum, even if the 
 
 **The Fix**: ✅
 ```javascript
-// Use real progress from backend if available
-if (video.metadata && video.metadata.progress !== undefined) {
-    progress.value = Math.round(video.metadata.progress);
+const nextProgress = typeof video.progress === 'number'
+    ? Math.min(100, Math.max(0, video.progress))
+    : null;
+
+if (nextProgress !== null) {
+    progress.value = nextProgress;
+    props.video.progress = nextProgress;
 } else {
-    // Fallback: increment by 2% each check, no cap
-    progress.value = Math.min(progress.value + 2, 99);
+    progress.value = Math.min(progress.value + 1, 95);
 }
 ```
 

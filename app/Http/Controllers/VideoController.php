@@ -69,6 +69,7 @@ class VideoController extends Controller
                 'summary_text' => $summary,
                 'prompt' => $videoPrompt,
                 'status' => 'pending',
+                'progress' => 0,
                 'metadata' => [
                     'answers' => $answers,
                     'created_at' => now()->toIso8601String(),
@@ -76,7 +77,7 @@ class VideoController extends Controller
             ]);
 
             // Dispatch job for async video generation
-            GenerateVideoJob::dispatch($video);
+            GenerateVideoJob::dispatch($video->id);
 
             // Redirect back to production page which will now show the new video
             return redirect()->back()->with([
@@ -100,6 +101,9 @@ class VideoController extends Controller
             'video_url' => $video->video_url,
             'error_message' => $video->error_message,
             'metadata' => $video->metadata,
+            'progress' => $video->progress,
+            'provider' => $video->provider,
+            'mode' => $video->mode,
         ]);
     }
 

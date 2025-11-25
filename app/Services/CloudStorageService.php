@@ -226,8 +226,9 @@ class CloudStorageService
      */
     public function getPublicUrl(string $path): string
     {
-        // Use authenticated URL format for Cloud Storage
-        return "https://storage.cloud.google.com/{$this->bucket}/{$path}";
+        $normalizedPath = ltrim($path, '/');
+
+        return "https://storage.googleapis.com/{$this->bucket}/{$normalizedPath}";
     }
 
     /**
@@ -305,10 +306,9 @@ class CloudStorageService
         // Extract bucket and file path
         $parts = explode('/', $path, 2);
         $bucket = $parts[0] ?? $this->bucket;
-        $filePath = $parts[1] ?? '';
+        $filePath = ltrim($parts[1] ?? '', '/');
 
-        // Use authenticated URL format
-        return "https://storage.cloud.google.com/{$bucket}/{$filePath}";
+        return "https://storage.googleapis.com/{$bucket}/{$filePath}";
     }
 
     /**

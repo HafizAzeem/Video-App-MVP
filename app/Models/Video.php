@@ -14,8 +14,14 @@ class Video extends Model
     protected $fillable = [
         'user_id',
         'summary_text',
+        'prompt',
         'video_url',
         'status',
+        'provider',
+        'mode',
+        'progress',
+        'operation_name',
+        'storage_uri',
         'error_message',
         'metadata',
     ];
@@ -24,6 +30,7 @@ class Video extends Model
     {
         return [
             'metadata' => 'array',
+            'progress' => 'integer',
         ];
     }
 
