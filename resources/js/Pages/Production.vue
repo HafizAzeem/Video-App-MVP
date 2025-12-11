@@ -1,7 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import axios from 'axios';
 import ProgressBar from '@/Components/ProgressBar.vue';
 import VideoPlayer from '@/Components/VideoPlayer.vue';
@@ -28,7 +28,19 @@ const isCompleted = computed(() => videoStatus.value === 'completed');
 const hasFailed = computed(() => videoStatus.value === 'failed');
 const isProcessing = computed(() => ['pending', 'processing'].includes(videoStatus.value));
 
+// Watch for video prop changes to update progress
+watch(() => props.video?.progress, (newProgress) => {
+    if (typeof newProgress === 'number' && !isNaN(newProgress)) {
+        progress.value = Math.min(100, Math.max(0, newProgress));
+    }
+}, { immediate: true });
+
 onMounted(() => {
+    // Initialize progress from video prop
+    if (props.video?.progress !== undefined) {
+        progress.value = Math.min(100, Math.max(0, props.video.progress));
+    }
+    
     if (props.video && isProcessing.value) {
         startPolling();
     }
@@ -61,6 +73,10 @@ const startVideoGeneration = () => {
             clearLocalStorage();
             startPolling();
         },
+        onError: (errors) => {
+            statusMessage.value = 'Failed to start video generation: ' + (errors.message || 'Unknown error');
+            isGenerating.value = false;
+        },
         onFinish: () => {
             isGenerating.value = false;
         },
@@ -70,9 +86,11 @@ const startVideoGeneration = () => {
 const startPolling = () => {
     if (pollInterval.value) return;
 
+    // Start polling immediately, then every 2 seconds
+    checkVideoStatus();
     pollInterval.value = setInterval(() => {
         checkVideoStatus();
-    }, 5000); // Poll every 5 seconds
+    }, 2000); // Poll every 2 seconds for faster updates
 };
 
 const stopPolling = () => {
@@ -83,45 +101,73 @@ const stopPolling = () => {
 };
 
 const checkVideoStatus = () => {
-    if (!props.video) return;
+    if (!props.video || !props.video.id) {
+        return;
+    }
 
     axios.get(route('production.status', { video: props.video.id }))
         .then(response => {
             const video = response.data;
             
-            if (video.status === 'completed') {
-                progress.value = 100;
-                statusMessage.value = 'Video generation completed!';
-                // Update the video prop with new data
+            // Update all video properties
+            if (props.video) {
                 props.video.status = video.status;
                 props.video.video_url = video.video_url;
-                props.video.progress = 100;
+                props.video.error_message = video.error_message;
+                props.video.progress = video.progress ?? 0;
+            }
+            
+            // Check status first - if completed, always show 100%
+            if (video.status === 'completed') {
+                // Always set to 100% when completed, regardless of what progress was reported
+                progress.value = 100;
+                if (props.video) {
+                    props.video.progress = 100;
+                }
+                statusMessage.value = 'Video generation completed!';
                 stopPolling();
+                return; // Exit early to avoid any other updates
             } else if (video.status === 'failed') {
                 statusMessage.value = 'Video generation failed. Please try again.';
-                props.video.status = video.status;
-                props.video.error_message = video.error_message;
                 stopPolling();
-            } else if (video.status === 'processing') {
-                // Use real progress from backend if available, otherwise increment slowly
-                const nextProgress = typeof video.progress === 'number'
-                    ? Math.min(100, Math.max(0, video.progress))
-                    : null;
-
-                // Only update if progress increases or is 100 (completed)
-                if (nextProgress !== null && (nextProgress > progress.value || nextProgress === 100)) {
-                    progress.value = nextProgress;
-                    props.video.progress = nextProgress;
-                } else if (nextProgress === null) {
-                    progress.value = Math.min(progress.value + 1, 95);
-                }
-                statusMessage.value = 'Generating your video...';
-                props.video.status = video.status;
+                return;
             }
+            
+            // For processing/pending videos, update progress
+            let nextProgress = typeof video.progress === 'number' && !isNaN(video.progress)
+                ? Math.min(100, Math.max(0, video.progress))
+                : (progress.value || 0);
+            
+            // Ensure progress never goes backwards
+            if (nextProgress < progress.value && progress.value > 0) {
+                // If backend reports lower progress, keep current (might be timing issue)
+                nextProgress = progress.value;
+            }
+            
+            progress.value = nextProgress;
+            statusMessage.value = `Generating your video... ${nextProgress}%`;
         })
         .catch(error => {
             console.error('Status check failed:', error);
-            statusMessage.value = 'Failed to check video status';
+            
+            // Handle network errors gracefully
+            if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+                // Network errors are usually temporary, will retry on next poll
+                return;
+            }
+            
+            // Handle 404 (video not found) or other errors
+            if (error.response?.status === 404) {
+                statusMessage.value = 'Video not found. Please try generating again.';
+                stopPolling();
+            } else if (error.response?.status === 403) {
+                statusMessage.value = 'Access denied. Please refresh the page.';
+                stopPolling();
+            } else if (error.response?.status >= 500) {
+                statusMessage.value = 'Server error. Retrying...';
+            } else {
+                statusMessage.value = 'Failed to check video status. Retrying...';
+            }
         });
 };
 

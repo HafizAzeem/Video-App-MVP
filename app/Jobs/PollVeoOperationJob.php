@@ -12,7 +12,7 @@ class PollVeoOperationJob implements ShouldQueue
 {
     use Queueable;
 
-    private const POLL_DELAY_SECONDS = 10;
+    private const POLL_DELAY_SECONDS = 3; // Poll every 3 seconds for faster progress updates
 
     private const MAX_ATTEMPTS = 60;
 
@@ -32,11 +32,6 @@ class PollVeoOperationJob implements ShouldQueue
         }
 
         if ($video->status !== 'processing') {
-            Log::info('Video no longer processing, skipping poll', [
-                'video_id' => $video->id,
-                'status' => $video->status,
-            ]);
-
             return;
         }
 
@@ -53,11 +48,8 @@ class PollVeoOperationJob implements ShouldQueue
 
         try {
             $result = $videoService->pollOperation($video->operation_name);
-
-            if (isset($result['progress'])) {
-                $video->update(['progress' => (int) min(100, max(0, $result['progress']))]);
-            }
-
+            
+            // Check for errors first
             if (! empty($result['error'])) {
                 $video->update([
                     'status' => 'failed',
@@ -73,26 +65,69 @@ class PollVeoOperationJob implements ShouldQueue
                 return;
             }
 
-            if (! ($result['done'] ?? false)) {
+            // Check if done - if done, skip progress updates and go straight to completion
+            $isDone = $result['done'] ?? false;
+            
+            if ($isDone) {
+                // Video is done - skip to completion handling below
+                // Don't update progress here, we'll set it to 100% in the completion block
+            } else {
+                // Video is still processing - update progress
+                if (isset($result['progress']) && $result['progress'] !== null && $result['progress'] > 0) {
+                    // Cap progress at 90% until video is actually done (has video_url)
+                    $newProgress = (int) min(90, max(0, $result['progress']));
+                    // Always update if new progress is higher than current
+                    $currentProgress = $video->progress ?? 10;
+                    if ($newProgress > $currentProgress) {
+                        $video->update(['progress' => $newProgress]);
+                    }
+                } else {
+                    // If no progress from API, use smarter estimation
+                    // Estimate based on time elapsed and attempt number
+                    $currentProgress = $video->progress ?? 10;
+                    
+                    // Calculate time-based progress (assume video takes 2-3 minutes, more realistic)
+                    $timeElapsed = now()->diffInSeconds($video->created_at);
+                    // More realistic: assume video completes in ~120 seconds, so ~0.75% per second
+                    // Cap at 90% max until video is actually done
+                    $estimatedTimeProgress = min(90, (int) ($timeElapsed * 0.75));
+                    
+                    // Calculate attempt-based progress (each attempt = ~3% since we poll every 3s)
+                    // More realistic: 3% per poll, max 90%
+                    $attemptProgress = min(90, (int) (($this->attempt + 1) * 3));
+                    
+                    // Use the higher of the two estimates, but ensure it's always increasing
+                    // Add a minimum increment to ensure progress always moves forward
+                    $minIncrement = 2; // Minimum 2% increase per poll (more realistic)
+                    $estimatedProgress = max(
+                        $currentProgress + $minIncrement, // Always increase by at least 2%
+                        min(90, max($estimatedTimeProgress, $attemptProgress)) // Cap at 90% max
+                    );
+                    
+                    $video->update(['progress' => $estimatedProgress]);
+                }
+                
+                // Video is still processing, reschedule polling
                 $this->reschedule($video);
-
                 return;
             }
 
+            // Video is done - ensure progress is 100% and update everything in one go
             if (empty($result['video_url'])) {
                 throw new \RuntimeException('Video completed but no downloadable URL provided');
             }
 
+            // Update everything atomically - progress to 100%, status to completed, and video URL
             $video->update([
                 'status' => 'completed',
-                'video_url' => $result['video_url'],
                 'progress' => 100,
+                'video_url' => $result['video_url'],
                 'metadata' => array_merge($video->metadata ?? [], [
                     'completed_at' => now()->toIso8601String(),
                 ]),
             ]);
-
-            Log::info('Video generation completed successfully', [
+            
+            Log::info('Video generation completed', [
                 'video_id' => $video->id,
                 'operation' => $video->operation_name,
             ]);

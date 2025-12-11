@@ -27,13 +27,23 @@ class GenerateVideoJob implements ShouldQueue
             return;
         }
 
-        if ($video->status !== 'pending') {
-            Log::info('Video already processed, skipping GenerateVideoJob', [
-                'video_id' => $video->id,
-                'status' => $video->status,
-            ]);
-
+        // Allow reprocessing if video is stuck in processing for more than 5 minutes
+        $isStuck = $video->status === 'processing' && 
+                   $video->updated_at < now()->subMinutes(5);
+        
+        if ($video->status !== 'pending' && !$isStuck) {
             return;
+        }
+        
+        if ($isStuck) {
+            Log::warning('Video stuck in processing, resetting to pending', [
+                'video_id' => $video->id,
+            ]);
+            
+            $video->update([
+                'status' => 'pending',
+                'progress' => 0,
+            ]);
         }
 
         try {
@@ -45,7 +55,7 @@ class GenerateVideoJob implements ShouldQueue
 
             $video->update([
                 'status' => 'processing',
-                'progress' => 0,
+                'progress' => 10, // Start at 10% to show something is happening
             ]);
 
             $result = $videoService->startGeneration($prompt);
@@ -59,7 +69,6 @@ class GenerateVideoJob implements ShouldQueue
                     'mode' => $result['mode'] ?? config('services.text_to_video.mode', 'test'),
                     'progress' => 100,
                 ]);
-
                 return;
             }
 
@@ -79,28 +88,8 @@ class GenerateVideoJob implements ShouldQueue
                 ]),
             ]);
 
-            // Poll operation status and update progress
-            $done = false;
-            $maxAttempts = 120;
-            $attempt = 0;
-            while (! $done && $attempt < $maxAttempts) {
-                sleep(10);
-                $poll = $videoService->pollOperation($operationName);
-                $progress = $poll['progress'] ?? null;
-                if ($progress !== null) {
-                    $video->update(['progress' => $progress]);
-                }
-                if ($poll['done'] ?? false) {
-                    $videoUrl = $poll['video_url'] ?? null;
-                    $video->update([
-                        'status' => 'completed',
-                        'video_url' => $videoUrl,
-                        'progress' => 100,
-                    ]);
-                    $done = true;
-                }
-                $attempt++;
-            }
+            // Dispatch polling job to check status asynchronously (start after 3 seconds)
+            PollVeoOperationJob::dispatch($video->id)->delay(now()->addSeconds(3));
         } catch (\Exception $e) {
             Log::error('Video generation failed', [
                 'video_id' => $video->id,

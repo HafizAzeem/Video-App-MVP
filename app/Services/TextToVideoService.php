@@ -80,16 +80,31 @@ class TextToVideoService
         $client = $this->initializeHttpClient();
         $result = $this->pollOperationStatus($client, $operationName);
 
-        $progress = Arr::get($result, 'metadata.progressPercent');
+        $isDone = (bool) Arr::get($result, 'done', false);
+        
+        // Try multiple locations for progress in Veo API response
+        $progress = Arr::get($result, 'metadata.progressPercent')
+            ?? Arr::get($result, 'metadata.progress')
+            ?? Arr::get($result, 'progress')
+            ?? Arr::get($result, 'response.progress')
+            ?? null;
+        
         $errorMessage = Arr::get($result, 'error.message');
         $gcsUri = $this->extractVideoUri($result);
-
+        
         $payload = [
-            'done' => (bool) Arr::get($result, 'done', false),
+            'done' => $isDone,
         ];
 
-        if ($progress !== null) {
+        // If done, progress is ALWAYS 100% regardless of what API says
+        if ($isDone) {
+            $payload['progress'] = 100;
+        } elseif ($progress !== null) {
+            // Use progress from API (only when not done)
             $payload['progress'] = (int) round($progress);
+        } else {
+            // If Veo doesn't return progress, return null so PollVeoOperationJob can estimate
+            $payload['progress'] = null;
         }
 
         if ($gcsUri) {
@@ -115,8 +130,6 @@ class TextToVideoService
         if ($credentialsPath && !str_starts_with($credentialsPath, DIRECTORY_SEPARATOR) && !preg_match('/^[A-Za-z]:\\\\/', $credentialsPath)) {
             $credentialsPath = storage_path('app/' . ltrim($credentialsPath, '/'));
         }
-        // Debug credentials path
-        Log::info('Checking credentials path', ['path' => $credentialsPath, 'exists' => file_exists($credentialsPath)]);
 
         if (! $credentialsPath || ! file_exists($credentialsPath)) {
             throw new \RuntimeException("Google credentials file not found: {$credentialsPath}");
@@ -186,12 +199,6 @@ class TextToVideoService
 
         $endpoint = "https://{$location}-aiplatform.googleapis.com/v1/projects/{$projectId}/locations/{$location}/publishers/google/models/{$model}:predictLongRunning";
 
-        Log::info('Calling Veo API', [
-            'endpoint' => $endpoint,
-            'model' => $model,
-            'storage_uri' => $storageUri,
-        ]);
-
         $response = $client->post($endpoint, ['json' => $requestBody]);
         $result = json_decode($response->getBody()->getContents(), true);
 
@@ -200,10 +207,6 @@ class TextToVideoService
         if (! $operationName) {
             throw new \RuntimeException('No operation name returned from Veo API');
         }
-
-        Log::info('Veo predictLongRunning accepted', [
-            'operation_name' => $operationName,
-        ]);
 
         return [
             'operation_name' => $operationName,
@@ -229,18 +232,6 @@ class TextToVideoService
         ]);
 
         $result = json_decode($response->getBody()->getContents(), true);
-
-        if ($result['done'] ?? false) {
-            Log::info('Veo operation completed', [
-                'operation_name' => $operationName,
-                'progress' => Arr::get($result, 'metadata.progressPercent'),
-            ]);
-        } else {
-            Log::debug('Veo operation poll', [
-                'operation_name' => $operationName,
-                'progress' => Arr::get($result, 'metadata.progressPercent'),
-            ]);
-        }
 
         return $result;
     }

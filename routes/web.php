@@ -44,6 +44,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/production', [VideoController::class, 'index'])->name('production.index');
     Route::post('/production/generate', [VideoController::class, 'generate'])->name('production.generate');
     Route::get('/production/status/{video}', [VideoController::class, 'checkStatus'])->name('production.status');
+    
+    // Debug route to test job dispatch
+    Route::post('/production/test-job', function () {
+        \Illuminate\Support\Facades\Log::info('Test job endpoint called');
+        $jobCountBefore = \Illuminate\Support\Facades\DB::table('jobs')->count();
+        \App\Jobs\GenerateVideoJob::dispatch(1); // Use video ID 1 for testing
+        $jobCountAfter = \Illuminate\Support\Facades\DB::table('jobs')->count();
+        return response()->json([
+            'success' => true,
+            'jobs_before' => $jobCountBefore,
+            'jobs_after' => $jobCountAfter,
+            'job_created' => $jobCountAfter > $jobCountBefore,
+        ]);
+    })->name('production.test-job');
 
     // Gallery
     Route::get('/gallery', [VideoController::class, 'gallery'])->name('gallery');

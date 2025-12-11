@@ -8,6 +8,8 @@ use App\Services\GPTService;
 use App\Services\TextToVideoService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -59,6 +61,7 @@ class VideoController extends Controller
         $answers = session('answers');
 
         if (! $videoPrompt || ! $summary) {
+            Log::warning('Video generation attempted without required session data');
             return redirect()->back()->with('error', 'Missing required data');
         }
 
@@ -85,6 +88,11 @@ class VideoController extends Controller
                 'message' => 'Video generation started!',
             ]);
         } catch (\Exception $e) {
+            Log::error('Video generation failed in controller', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            
             return redirect()->back()->with('error', $e->getMessage());
         }
     }
@@ -94,17 +102,37 @@ class VideoController extends Controller
      */
     public function checkStatus(Video $video)
     {
-        $this->authorize('view', $video);
+        try {
+            $this->authorize('view', $video);
 
-        return response()->json([
-            'status' => $video->status,
-            'video_url' => $video->video_url,
-            'error_message' => $video->error_message,
-            'metadata' => $video->metadata,
-            'progress' => $video->progress,
-            'provider' => $video->provider,
-            'mode' => $video->mode,
-        ]);
+            return response()->json([
+                'status' => $video->status,
+                'video_url' => $video->video_url,
+                'error_message' => $video->error_message,
+                'metadata' => $video->metadata,
+                'progress' => $video->progress ?? 0,
+                'provider' => $video->provider,
+                'mode' => $video->mode,
+            ]);
+        } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+            Log::warning('Unauthorized status check attempt', [
+                'video_id' => $video->id,
+                'user_id' => auth()->id(),
+            ]);
+            
+            return response()->json([
+                'error' => 'Unauthorized access',
+            ], 403);
+        } catch (\Exception $e) {
+            Log::error('Error checking video status', [
+                'video_id' => $video->id,
+                'error' => $e->getMessage(),
+            ]);
+            
+            return response()->json([
+                'error' => 'Failed to check video status',
+            ], 500);
+        }
     }
 
     /**
